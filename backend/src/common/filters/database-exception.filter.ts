@@ -15,6 +15,10 @@ const PG_ERRORS: Record<string, { status: number; error: string; message: string
   '23503': { status: HttpStatus.CONFLICT, error: 'Conflict', message: 'This record is linked to other records' },
   '23514': { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: 'A value breaks a database rule' },
   '22P02': { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: 'Invalid value format' },
+  '22007': { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: 'Invalid date or time format' },
+  '22008': { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: 'Date or time value is out of range' },
+  '22001': { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: 'A value is too long' },
+  '22003': { status: HttpStatus.BAD_REQUEST, error: 'Bad Request', message: 'A number is out of range' },
 };
 
 // Catches database errors that no service handled itself, so a duplicate
