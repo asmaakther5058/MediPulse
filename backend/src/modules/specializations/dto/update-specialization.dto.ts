@@ -1,5 +1,5 @@
  
-import { PartialType } from '@nestjs/mapped-types';
+import { PartialType } from '@nestjs/swagger';
 import { IsBoolean, IsOptional } from 'class-validator';
 import { CreateSpecializationDto } from './create-specialization.dto.js';
 

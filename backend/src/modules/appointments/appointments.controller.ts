@@ -8,6 +8,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { AppointmentsService } from './appointments.service.js';
 import { CreateAppointmentDto } from './dto/create-appointment.dto.js';
@@ -21,6 +22,8 @@ import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
 
 // Patient side. Doctor routes (/appointments/doctor/my, /:id/accept, ...)
 // are in doctor-appointments.
+@ApiTags('Appointments')
+@ApiBearerAuth()
 @Controller('appointments')
 export class AppointmentsController {
   constructor(private readonly appointmentsService: AppointmentsService) {}

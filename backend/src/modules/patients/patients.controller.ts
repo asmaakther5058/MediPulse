@@ -7,7 +7,10 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 import { PatientsService } from './patients.service.js';
 import { CreatePatientDto } from './dto/create-patient.dto.js';
@@ -18,6 +21,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
 import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
 
+@ApiTags('Patients')
+@ApiBearerAuth()
 @Controller('patients')
 export class PatientsController {
   constructor(private readonly patientsService: PatientsService) {}
@@ -36,6 +41,13 @@ export class PatientsController {
     return this.patientsService.findMyProfile(user.id);
   }
 
+  // Patient overview: counts, next appointment, recent notifications
+  @Roles(UserRole.PATIENT)
+  @Get('me/dashboard')
+  dashboard(@CurrentUser() user: AuthUser) {
+    return this.patientsService.dashboard(user.id);
+  }
+
   @Roles(UserRole.PATIENT)
   @Patch('me')
   updateMyProfile(@CurrentUser() user: AuthUser, @Body() dto: UpdatePatientDto) {
@@ -45,8 +57,8 @@ export class PatientsController {
   // Admin: all patients
   @Roles(UserRole.ADMIN)
   @Get()
-  findAll() {
-    return this.patientsService.findAll();
+  findAll(@Query() query: PaginationQueryDto) {
+    return this.patientsService.findAll(query);
   }
 
   @Roles(UserRole.PATIENT, UserRole.DOCTOR, UserRole.ADMIN)

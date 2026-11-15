@@ -7,13 +7,19 @@ import {
 } from '@nestjs/common';
 
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 
 import { DiagnosticCenter } from './entities/diagnostic-center.entity.js';
 import { User } from '../users/entities/user.entity.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
 import { VerificationStatus } from '../../common/enums/verification-status.enum.js';
 import { isUniqueViolation } from '../../common/utils/safe-user.util.js';
+import { DiagnosticTest } from '../diagnostic-tests/entities/diagnostic-test.entity.js';
+import { TestRecommendation } from '../test-recommendations/entities/test-recommendation.entity.js';
+import { DiagnosticBooking } from '../diagnostic-bookings/entities/diagnostic-booking.entity.js';
+import { RecommendationStatus } from '../../common/enums/recommendation-status.enum.js';
+import { DiagnosticBookingStatus } from '../../common/enums/diagnostic-booking-status.enum.js';
+import { PaginationQueryDto, paginate } from '../../common/dto/pagination-query.dto.js';
 
 import { CreateDiagnosticCenterDto } from './dto/create-diagnostic-center.dto.js';
 import { UpdateDiagnosticCenterDto } from './dto/update-diagnostic-center.dto.js';
@@ -26,6 +32,8 @@ export class DiagnosticCentersService {
 
     @InjectRepository(User)
     private readonly userRepository: Repository<User>,
+
+    private readonly dataSource: DataSource,
   ) {}
 
   private formatCenter(center: DiagnosticCenter) {
@@ -96,13 +104,10 @@ export class DiagnosticCentersService {
       );
     }
 
-    const existingCenter = await this.centerRepository.findOne({
-      where: { user: { id: userId } },
-    });
-
-    if (existingCenter) {
+    // Version 1 has exactly one diagnostic center (spec section 2)
+    if ((await this.centerRepository.count()) > 0) {
       throw new ConflictException(
-        'Diagnostic center profile already exists',
+        'A diagnostic center already exists; this version supports one center',
       );
     }
 
@@ -128,13 +133,52 @@ export class DiagnosticCentersService {
     }
   }
 
-  async findAll() {
-    const centers = await this.centerRepository.find({
+  async findAll(query: PaginationQueryDto) {
+    const { page, limit } = query;
+    const [centers, total] = await this.centerRepository.findAndCount({
       relations: { user: true },
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
 
-    return centers.map((center) => this.formatCenter(center));
+    return paginate(centers.map((center) => this.formatCenter(center)), total, page, limit);
+  }
+
+  // Center overview (spec 5A)
+  async dashboard() {
+    const count = <T extends object>(entity: new () => T, where: Record<string, unknown> = {}) =>
+      this.dataSource.getRepository(entity).count({ where: where as never });
+
+    const [activeTests, recommended, pendingRecommendations, confirmed, completed, recent] = await Promise.all([
+      count(DiagnosticTest, { isActive: true }),
+      count(TestRecommendation),
+      count(TestRecommendation, { status: RecommendationStatus.PENDING }),
+      count(DiagnosticBooking, { status: DiagnosticBookingStatus.CONFIRMED }),
+      count(DiagnosticBooking, { status: DiagnosticBookingStatus.COMPLETED }),
+      this.dataSource.getRepository(DiagnosticBooking).find({
+        where: { status: DiagnosticBookingStatus.CONFIRMED },
+        relations: { patient: { user: true }, recommendation: { diagnosticTest: true } },
+        order: { bookingDate: 'ASC' },
+        take: 5,
+      }),
+    ]);
+
+    return {
+      availableTests: activeTests,
+      totalRecommendedTests: recommended,
+      recommendationsAwaitingPatient: pendingRecommendations,
+      confirmedBookings: confirmed,
+      completedTests: completed,
+      upcomingBookings: recent.map((b) => ({
+        id: b.id,
+        patientCode: b.patient.patientCode,
+        patientName: b.patient.user.fullName,
+        testName: b.recommendation.diagnosticTest.testName,
+        bookingDate: b.bookingDate,
+        bookingTime: b.bookingTime,
+      })),
+    };
   }
 
   async findOne(

@@ -9,6 +9,7 @@ import {
   Check,
   Unique,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { sqlIn } from '../../../common/utils/sql.util.js';
 
 import { Doctor } from '../../doctors/entities/doctor.entity.js';
@@ -29,7 +30,7 @@ export class DoctorAvailability {
 
   @ManyToOne(() => Doctor, { onDelete: 'CASCADE', nullable: false })
   @JoinColumn({ name: 'doctor_id' })
-  doctor: Doctor;
+  doctor: Relation<Doctor>;
 
   @Column({ name: 'day_of_week', type: 'varchar', length: 10 })
   dayOfWeek: DayOfWeek;

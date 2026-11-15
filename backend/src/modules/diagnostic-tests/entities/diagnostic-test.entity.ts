@@ -6,10 +6,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Index,
+  Check,
 } from 'typeorm';
 
 @Entity('diagnostic_tests')
 @Index('idx_diagnostic_tests_category', ['category'])
+@Check('chk_diagnostic_tests_price', `"price" >= 0`)
 export class DiagnosticTest {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -22,6 +24,9 @@ export class DiagnosticTest {
 
   @Column({ type: 'text', nullable: true })
   description: string | null;
+
+  @Column({ type: 'numeric', precision: 10, scale: 2, default: 0 })
+  price: string;
 
   @Column({ name: 'sample_type', type: 'varchar', length: 100, nullable: true })
   sampleType: string | null;

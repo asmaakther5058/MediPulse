@@ -22,7 +22,18 @@ import { UserRole } from '../../common/enums/user-role.enum.js';
 import { VerificationStatus } from '../../common/enums/verification-status.enum.js';
 import { hashPassword } from '../../common/utils/password.util.js';
 import { isUniqueViolation, toSafeUser } from '../../common/utils/safe-user.util.js';
-import { paginate } from '../../common/dto/pagination-query.dto.js';
+import { PaginationQueryDto, paginate } from '../../common/dto/pagination-query.dto.js';
+import { Appointment } from '../appointments/entities/appointment.entity.js';
+import { Earning } from '../earnings/entities/earning.entity.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { NotificationType } from '../../common/enums/notification-type.enum.js';
+import { EarningBeneficiaryRole } from '../../common/enums/earning-beneficiary-role.enum.js';
+import {
+  AppointmentCategory,
+  AppointmentStatus,
+  CATEGORY_STATUSES,
+} from '../../common/enums/appointment-status.enum.js';
+import { expireStaleHolds, formatAppointment, APPOINTMENT_RELATIONS } from '../../common/utils/appointment.util.js';
 
 @Injectable()
 export class DoctorsService {
@@ -37,6 +48,8 @@ export class DoctorsService {
     private readonly specializationRepository: Repository<Specialization>,
 
     private readonly dataSource: DataSource,
+
+    private readonly notifications: NotificationsService,
   ) {}
 
   // Safe response shape (no password hash)
@@ -221,13 +234,107 @@ export class DoctorsService {
     return this.format(doctor);
   }
 
-  async findAllForAdmin() {
-    const doctors = await this.doctorRepository.find({
+  // Doctor overview (spec 4A)
+  async dashboard(userId: string) {
+    const doctor = await this.doctorRepository.findOne({ where: { user: { id: userId } }, relations: { user: true } });
+
+    if (!doctor) {
+      throw new NotFoundException('Your doctor profile was not found');
+    }
+
+    await expireStaleHolds(this.dataSource.manager);
+    const appointments = this.dataSource.getRepository(Appointment);
+    const mine = { doctor: { id: doctor.id } };
+    const countIn = (statuses: AppointmentStatus[]) =>
+      appointments.count({ where: statuses.map((status) => ({ ...mine, status })) });
+
+    const [total, upcoming, completed, cancelled, patientsRow, earningsRow, requests] = await Promise.all([
+      appointments.count({ where: mine }),
+      countIn(CATEGORY_STATUSES[AppointmentCategory.UPCOMING]),
+      countIn(CATEGORY_STATUSES[AppointmentCategory.COMPLETED]),
+      countIn(CATEGORY_STATUSES[AppointmentCategory.CANCELLED]),
+      appointments
+        .createQueryBuilder('a')
+        .select('COUNT(DISTINCT a.patient_id)', 'count')
+        .where('a.doctor_id = :id', { id: doctor.id })
+        .andWhere('a.status = :status', { status: AppointmentStatus.COMPLETED })
+        .getRawOne<{ count: string }>(),
+      this.dataSource
+        .getRepository(Earning)
+        .createQueryBuilder('e')
+        .select('COALESCE(SUM(e.amount), 0)', 'total')
+        .where('e.beneficiary_user_id = :userId', { userId })
+        .andWhere('e.beneficiaryRole = :role', { role: EarningBeneficiaryRole.DOCTOR })
+        .getRawOne<{ total: string }>(),
+      appointments.find({
+        where: { ...mine, status: AppointmentStatus.PENDING_DOCTOR },
+        relations: APPOINTMENT_RELATIONS,
+        order: { appointmentDate: 'ASC', startTime: 'ASC' },
+        take: 5,
+      }),
+    ]);
+
+    return {
+      doctorName: doctor.user.fullName,
+      verificationStatus: doctor.verificationStatus,
+      appointments: { total, upcoming, completed, cancelled },
+      totalPatientsConsulted: Number(patientsRow?.count ?? 0),
+      totalEarnings: Number(earningsRow?.total ?? 0),
+      currency: 'BDT',
+      recentRequests: requests.map(formatAppointment),
+    };
+  }
+
+  // Patients with at least one paid appointment with this doctor (spec 4F)
+  async myPatients(userId: string, query: PaginationQueryDto) {
+    const { page, limit } = query;
+    const paid = [AppointmentStatus.PENDING_DOCTOR, AppointmentStatus.ACCEPTED, AppointmentStatus.COMPLETED];
+
+    const qb = this.dataSource
+      .getRepository(Appointment)
+      .createQueryBuilder('a')
+      .innerJoin('a.doctor', 'd')
+      .innerJoin('d.user', 'du')
+      .innerJoin('a.patient', 'p')
+      .innerJoin('p.user', 'pu')
+      .where('du.id = :userId', { userId })
+      .andWhere('a.status IN (:...paid)', { paid })
+      .select('p.id', 'id')
+      .addSelect('p.patient_code', 'patientCode')
+      .addSelect('pu.full_name', 'fullName')
+      .addSelect('pu.phone', 'phone')
+      .addSelect('p.gender', 'gender')
+      .addSelect('p.date_of_birth', 'dateOfBirth')
+      .addSelect('COUNT(a.id)', 'appointments')
+      .addSelect('MAX(a.appointment_date)', 'lastAppointmentDate')
+      .groupBy('p.id')
+      .addGroupBy('pu.id');
+
+    const total = (await qb.clone().getRawMany()).length;
+    const rows = await qb
+      .orderBy('MAX(a.appointment_date)', 'DESC')
+      .offset((page - 1) * limit)
+      .limit(limit)
+      .getRawMany<Record<string, string>>();
+
+    return paginate(
+      rows.map((r) => ({ ...r, appointments: Number(r.appointments) })),
+      total,
+      page,
+      limit,
+    );
+  }
+
+  async findAllForAdmin(query: PaginationQueryDto) {
+    const { page, limit } = query;
+    const [doctors, total] = await this.doctorRepository.findAndCount({
       relations: { user: true, specialization: true },
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
 
-    return doctors.map((d) => this.format(d));
+    return paginate(doctors.map((d) => this.format(d)), total, page, limit);
   }
 
   async findMyProfile(userId: string) {
@@ -273,6 +380,20 @@ export class DoctorsService {
 
     doctor.verificationStatus = dto.verificationStatus;
     await this.doctorRepository.save(doctor);
+
+    if (dto.verificationStatus !== VerificationStatus.PENDING) {
+      await this.notifications.notify({
+        userId: doctor.user.id,
+        type: NotificationType.ACCOUNT_VERIFIED,
+        title: `Profile ${dto.verificationStatus.toLowerCase()}`,
+        message:
+          dto.verificationStatus === VerificationStatus.APPROVED
+            ? 'Your doctor profile is approved. Add your schedule so patients can book you.'
+            : 'Your doctor profile was not approved. Contact the admin for details.',
+        relatedEntityType: 'doctor',
+        relatedEntityId: doctor.id,
+      });
+    }
 
     return {
       message: `Doctor verification status updated to ${doctor.verificationStatus}`,

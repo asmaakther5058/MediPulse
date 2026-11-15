@@ -8,6 +8,7 @@ import {
   JoinColumn,
   Check,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { BLOOD_GROUPS } from '../../../common/enums/blood-group.enum.js';
 import { sqlIn } from '../../../common/utils/sql.util.js';
 
@@ -23,7 +24,7 @@ export class Patient {
 
   @OneToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
-  user: User;
+  user: Relation<User>;
 
   @Column({ name: 'patient_code', type: 'varchar', length: 30, unique: true })
   patientCode: string;

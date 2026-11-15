@@ -1,303 +1,251 @@
-import { AppointmentStatus } from '../../common/enums/appointment-status.enum.js';
- 
 import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
   BadRequestException,
   ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
-
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, EntityManager, In } from 'typeorm';
 
 import { Prescription } from './entities/prescription.entity.js';
 import { PrescriptionMedicine } from './entities/prescription-medicine.entity.js';
-
 import { Appointment } from '../appointments/entities/appointment.entity.js';
-import { Patient } from '../patients/entities/patient.entity.js';
-import { Doctor } from '../doctors/entities/doctor.entity.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
 
 import { CreatePrescriptionDto } from './dto/create-prescription.dto.js';
 import { UpdatePrescriptionDto } from './dto/update-prescription.dto.js';
+import { renderPrescriptionPdf } from './prescription-pdf.js';
+
+import { AppointmentStatus } from '../../common/enums/appointment-status.enum.js';
+import { UserRole } from '../../common/enums/user-role.enum.js';
+import { NotificationType } from '../../common/enums/notification-type.enum.js';
+import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
+import { PaginationQueryDto, paginate } from '../../common/dto/pagination-query.dto.js';
+import { isUniqueViolation } from '../../common/utils/safe-user.util.js';
+import { readStored, saveFile } from '../../common/utils/storage.util.js';
+
+const RELATIONS = {
+  appointment: true,
+  patient: { user: true },
+  doctor: { user: true, specialization: true },
+  medicines: true,
+} as const;
 
 @Injectable()
 export class PrescriptionsService {
   constructor(
-    @InjectRepository(Prescription)
-    private readonly prescriptionRepository: Repository<Prescription>,
-
-    @InjectRepository(PrescriptionMedicine)
-    private readonly medicineRepository: Repository<PrescriptionMedicine>,
-
-    @InjectRepository(Appointment)
-    private readonly appointmentRepository: Repository<Appointment>,
-
-    @InjectRepository(Patient)
-    private readonly patientRepository: Repository<Patient>,
-
-    @InjectRepository(Doctor)
-    private readonly doctorRepository: Repository<Doctor>,
+    private readonly dataSource: DataSource,
+    private readonly notifications: NotificationsService,
   ) {}
 
-  // Create prescription for a completed appointment
-  async create(
-    doctorUserId: string,
-    dto: CreatePrescriptionDto,
-  ) {
-    const appointment = await this.appointmentRepository.findOne({
-      where: { id: dto.appointmentId },
-      relations: {
-        patient: { user: true },
-        doctor: { user: true },
+  private format(p: Prescription) {
+    return {
+      id: p.id,
+      appointmentId: p.appointment?.id,
+      appointmentDate: p.appointment?.appointmentDate,
+      patient: { id: p.patient.id, patientCode: p.patient.patientCode, name: p.patient.user?.fullName },
+      doctor: {
+        id: p.doctor.id,
+        name: p.doctor.user?.fullName,
+        specialization: p.doctor.specialization?.name,
       },
+      diagnosis: p.diagnosis,
+      advice: p.advice,
+      followUpDate: p.followUpDate,
+      medicines: (p.medicines ?? []).map((m) => ({
+        id: m.id,
+        medicineName: m.medicineName,
+        dosage: m.dosage,
+        frequency: m.frequency,
+        duration: m.duration,
+        instructions: m.instructions,
+      })),
+      pdfUrl: p.pdfPath ? `/prescriptions/${p.id}/pdf` : null,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+    };
+  }
+
+  private async load(manager: EntityManager, id: string) {
+    const prescription = await manager.getRepository(Prescription).findOne({
+      where: { id },
+      relations: RELATIONS,
     });
 
-    if (!appointment) {
-      throw new NotFoundException('Appointment not found.');
+    if (!prescription) {
+      throw new NotFoundException('Prescription not found');
     }
 
-    if (appointment.doctor.user.id !== doctorUserId) {
-      throw new ForbiddenException(
-        'You can only create prescriptions for your own appointments.',
-      );
-    }
+    return prescription;
+  }
 
-    if (appointment.status !== AppointmentStatus.COMPLETED) {
-      throw new BadRequestException(
-        'Prescription can only be created for completed appointments.',
-      );
-    }
+  // (Re)builds the PDF and stores its path
+  private async writePdf(manager: EntityManager, id: string) {
+    const prescription = await this.load(manager, id);
+    prescription.pdfPath = await saveFile('prescriptions', await renderPrescriptionPdf(prescription), 'pdf');
+    await manager.getRepository(Prescription).update(id, { pdfPath: prescription.pdfPath });
+    return prescription;
+  }
 
-    const existingPrescription =
-      await this.prescriptionRepository.findOne({
-        where: {
-          appointment: { id: appointment.id },
-        },
+  private canRead(p: Prescription, user: AuthUser) {
+    return (
+      user.role === UserRole.ADMIN ||
+      p.patient.user.id === user.id ||
+      p.doctor.user.id === user.id
+    );
+  }
+
+  // Doctor: prescription for own COMPLETED appointment, saved with its
+  // medicines, PDF and patient notification in one transaction
+  async create(doctorUserId: string, dto: CreatePrescriptionDto) {
+    try {
+      const prescription = await this.dataSource.transaction(async (manager) => {
+        const appointment = await manager.getRepository(Appointment).findOne({
+          where: { id: dto.appointmentId },
+          relations: { patient: { user: true }, doctor: { user: true } },
+        });
+
+        if (!appointment) {
+          throw new NotFoundException('Appointment not found');
+        }
+
+        if (appointment.doctor.user.id !== doctorUserId) {
+          throw new ForbiddenException('You can only create prescriptions for your own appointments');
+        }
+
+        if (appointment.status !== AppointmentStatus.COMPLETED) {
+          throw new BadRequestException('Prescription can only be created for completed appointments');
+        }
+
+        if (await manager.getRepository(Prescription).exists({ where: { appointment: { id: appointment.id } } })) {
+          throw new ConflictException('A prescription already exists for this appointment');
+        }
+
+        const saved = await manager.getRepository(Prescription).save(
+          manager.getRepository(Prescription).create({
+            appointment,
+            patient: appointment.patient,
+            doctor: appointment.doctor,
+            diagnosis: dto.diagnosis,
+            advice: dto.advice ?? null,
+            followUpDate: dto.followUpDate ?? null,
+            medicines: dto.medicines.map((m) => manager.getRepository(PrescriptionMedicine).create({ ...m })),
+          }),
+        );
+
+        const withPdf = await this.writePdf(manager, saved.id);
+
+        await this.notifications.notify(
+          {
+            userId: appointment.patient.user.id,
+            type: NotificationType.PRESCRIPTION_READY,
+            title: 'New prescription',
+            message: `${appointment.doctor.user.fullName} has written your prescription. You can view and download it now.`,
+            relatedEntityType: 'prescription',
+            relatedEntityId: saved.id,
+          },
+          manager,
+        );
+
+        return withPdf;
       });
 
-    if (existingPrescription) {
-      throw new ConflictException(
-        'A prescription already exists for this appointment.',
-      );
-    }
-
-    if (!dto.medicines || dto.medicines.length === 0) {
-      throw new BadRequestException(
-        'At least one medicine is required.',
-      );
-    }
-
-    const prescription = this.prescriptionRepository.create({
-      appointment,
-      patient: appointment.patient,
-      doctor: appointment.doctor,
-      diagnosis: dto.diagnosis,
-      advice: dto.advice ?? null,
-      followUpDate: dto.followUpDate ?? null,
-      medicines: dto.medicines.map((medicine) =>
-        this.medicineRepository.create({
-          ...medicine,
-        }),
-      ),
-    });
-
-    try {
-      const savedPrescription =
-        await this.prescriptionRepository.save(prescription);
-
-      return this.findOne(savedPrescription.id);
+      return this.format(prescription);
     } catch (error) {
-      if (
-        error instanceof Error &&
-        'code' in error &&
-        error.code === '23505'
-      ) {
-        throw new ConflictException(
-          'A prescription already exists for this appointment.',
-        );
+      if (isUniqueViolation(error)) {
+        throw new ConflictException('A prescription already exists for this appointment');
       }
-
       throw error;
     }
   }
 
-  // Get one prescription
-  async findOne(id: string) {
-    const prescription = await this.prescriptionRepository.findOne({
-      where: { id },
-      relations: {
-        appointment: true,
-        patient: { user: true },
-        doctor: { user: true },
-        medicines: true,
-      },
-    });
+  async findOne(id: string, user: AuthUser) {
+    const prescription = await this.load(this.dataSource.manager, id);
 
-    if (!prescription) {
-      throw new NotFoundException('Prescription not found.');
+    // 404, not 403, so other people's prescription ids aren't confirmed
+    if (!this.canRead(prescription, user)) {
+      throw new NotFoundException('Prescription not found');
     }
 
-    return {
-      id: prescription.id,
-      appointmentId: prescription.appointment.id,
-      patient: {
-        id: prescription.patient.id,
-        name: prescription.patient.user.fullName,
-      },
-      doctor: {
-        id: prescription.doctor.id,
-        name: prescription.doctor.user.fullName,
-      },
-      diagnosis: prescription.diagnosis,
-      advice: prescription.advice,
-      followUpDate: prescription.followUpDate,
-      medicines: prescription.medicines.map((medicine) => ({
-        id: medicine.id,
-        medicineName: medicine.medicineName,
-        dosage: medicine.dosage,
-        frequency: medicine.frequency,
-        duration: medicine.duration,
-        instructions: medicine.instructions,
-      })),
-      createdAt: prescription.createdAt,
-      updatedAt: prescription.updatedAt,
-    };
+    return this.format(prescription);
   }
 
-  // Patient views own prescriptions
-  async findForPatient(patientUserId: string) {
-    const patient = await this.patientRepository.findOne({
-      where: { user: { id: patientUserId } },
-    });
+  // PDF bytes for the owner patient, the doctor or an admin
+  async pdf(id: string, user: AuthUser) {
+    const prescription = await this.load(this.dataSource.manager, id);
 
-    if (!patient) {
-      throw new NotFoundException('Patient profile not found.');
+    if (!this.canRead(prescription, user)) {
+      throw new NotFoundException('Prescription not found');
     }
 
-    const prescriptions = await this.prescriptionRepository.find({
-      where: { patient: { id: patient.id } },
-      relations: {
-        appointment: true,
-        patient: { user: true },
-        doctor: { user: true },
-        medicines: true,
-      },
+    const data = prescription.pdfPath
+      ? await readStored(prescription.pdfPath)
+      : await renderPrescriptionPdf(prescription);
+
+    return { data, fileName: `prescription-${prescription.patient.patientCode}-${prescription.id.slice(0, 8)}.pdf` };
+  }
+
+  private async list(where: Record<string, unknown>, query: PaginationQueryDto) {
+    const { page, limit } = query;
+    const [items, total] = await this.dataSource.getRepository(Prescription).findAndCount({
+      where,
+      relations: RELATIONS,
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
 
-    return Promise.all(
-      prescriptions.map((prescription) =>
-        this.findOne(prescription.id),
-      ),
-    );
+    return paginate(items.map((p) => this.format(p)), total, page, limit);
   }
 
-  // Doctor views own prescriptions
-  async findForDoctor(doctorUserId: string) {
-    const doctor = await this.doctorRepository.findOne({
-      where: { user: { id: doctorUserId } },
-    });
-
-    if (!doctor) {
-      throw new NotFoundException('Doctor profile not found.');
-    }
-
-    const prescriptions = await this.prescriptionRepository.find({
-      where: { doctor: { id: doctor.id } },
-      order: { createdAt: 'DESC' },
-    });
-
-    return Promise.all(
-      prescriptions.map((prescription) =>
-        this.findOne(prescription.id),
-      ),
-    );
+  findForPatient(patientUserId: string, query: PaginationQueryDto) {
+    return this.list({ patient: { user: { id: patientUserId } } }, query);
   }
 
-  // Admin views all prescriptions
-  async findAll() {
-    const prescriptions = await this.prescriptionRepository.find({
-      order: { createdAt: 'DESC' },
-    });
-
-    return Promise.all(
-      prescriptions.map((prescription) =>
-        this.findOne(prescription.id),
-      ),
-    );
+  findForDoctor(doctorUserId: string, query: PaginationQueryDto) {
+    return this.list({ doctor: { user: { id: doctorUserId } } }, query);
   }
 
-  // Doctor updates own prescription; Admin can update any
-  async update(
-    id: string,
-    userId: string,
-    isAdmin: boolean,
-    dto: UpdatePrescriptionDto,
-  ) {
-    const prescription = await this.prescriptionRepository.findOne({
-      where: { id },
-      relations: {
-        doctor: { user: true },
-        medicines: true,
-      },
-    });
+  findAll(query: PaginationQueryDto) {
+    return this.list({}, query);
+  }
 
-    if (!prescription) {
-      throw new NotFoundException('Prescription not found.');
-    }
+  // Doctor (own) or admin. Medicines, if sent, replace the old list.
+  // The PDF is regenerated.
+  async update(id: string, user: AuthUser, dto: UpdatePrescriptionDto) {
+    const prescription = await this.dataSource.transaction(async (manager) => {
+      const p = await this.load(manager, id);
 
-    if (!isAdmin && prescription.doctor.user.id !== userId) {
-      throw new ForbiddenException(
-        'You can only update your own prescriptions.',
-      );
-    }
+      if (user.role !== UserRole.ADMIN && p.doctor.user.id !== user.id) {
+        throw new ForbiddenException('You can only update your own prescriptions');
+      }
 
-    if (dto.diagnosis !== undefined) {
-      prescription.diagnosis = dto.diagnosis;
-    }
+      const fields: Partial<Prescription> = {};
+      if (dto.diagnosis !== undefined) fields.diagnosis = dto.diagnosis;
+      if (dto.advice !== undefined) fields.advice = dto.advice;
+      if (dto.followUpDate !== undefined) fields.followUpDate = dto.followUpDate;
 
-    if (dto.advice !== undefined) {
-      prescription.advice = dto.advice;
-    }
+      if (Object.keys(fields).length) {
+        await manager.getRepository(Prescription).update(id, fields);
+      }
 
-    if (dto.followUpDate !== undefined) {
-      prescription.followUpDate = dto.followUpDate;
-    }
-
-    if (dto.medicines !== undefined) {
-      if (dto.medicines.length === 0) {
-        throw new BadRequestException(
-          'At least one medicine is required.',
+      if (dto.medicines !== undefined) {
+        const medicines = manager.getRepository(PrescriptionMedicine);
+        await medicines.delete({ id: In(p.medicines.map((m) => m.id)) });
+        await medicines.save(
+          dto.medicines.map((m) => medicines.create({ ...m, prescription: { id } as Prescription })),
         );
       }
 
-      prescription.medicines = dto.medicines.map((medicine) =>
-        this.medicineRepository.create({
-          ...medicine,
-        }),
-      );
-    }
-
-    await this.prescriptionRepository.save(prescription);
-
-    return this.findOne(id);
-  }
-
-  // Admin deletes a prescription
-  async remove(id: string) {
-    const prescription = await this.prescriptionRepository.findOne({
-      where: { id },
+      return this.writePdf(manager, id);
     });
 
-    if (!prescription) {
-      throw new NotFoundException('Prescription not found.');
-    }
+    return this.format(prescription);
+  }
 
-    await this.prescriptionRepository.remove(prescription);
-
-    return {
-      message: 'Prescription deleted successfully.',
-    };
+  async remove(id: string) {
+    const prescription = await this.load(this.dataSource.manager, id);
+    await this.dataSource.getRepository(Prescription).remove(prescription);
+    return { message: 'Prescription deleted successfully' };
   }
 }

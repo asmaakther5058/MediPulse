@@ -15,6 +15,8 @@ import { UpdateDiagnosticCenterDto } from './dto/update-diagnostic-center.dto.js
 import { AdminCreateDiagnosticCenterDto } from './dto/admin-create-diagnostic-center.dto.js';
 
 
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { Public } from '../../common/decorators/public.decorator.js';
 import { VerifyDiagnosticCenterDto } from './dto/verify-diagnostic-center.dto.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
@@ -22,6 +24,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
 
+@ApiTags('Diagnostic center')
+@ApiBearerAuth()
 @Controller('diagnostic-centers')
 export class DiagnosticCentersController {
   constructor(
@@ -43,8 +47,15 @@ create(@Body() createDto: AdminCreateDiagnosticCenterDto) {
   // Admin can view all diagnostic centers
   @Get()
   @Roles(UserRole.ADMIN)
-  findAll() {
-    return this.diagnosticCentersService.findAll();
+  findAll(@Query() query: PaginationQueryDto) {
+    return this.diagnosticCentersService.findAll(query);
+  }
+
+  // Center overview: tests, recommendations, bookings (spec 5A)
+  @Get('me/dashboard')
+  @Roles(UserRole.DIAGNOSTIC_CENTER)
+  dashboard() {
+    return this.diagnosticCentersService.dashboard();
   }
 
   // Public: approved centers a patient can book with

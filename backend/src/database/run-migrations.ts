@@ -1,4 +1,3 @@
-
 import dataSource from './data-source.js';
 
 async function runMigrations() {

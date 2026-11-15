@@ -1,0 +1,4 @@
+export enum PaymentType {
+  CONSULTATION = 'CONSULTATION',
+  DIAGNOSTIC_TEST = 'DIAGNOSTIC_TEST',
+}

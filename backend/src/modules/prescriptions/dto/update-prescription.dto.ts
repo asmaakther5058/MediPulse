@@ -1,7 +1,7 @@
- 
-import { PartialType } from '@nestjs/mapped-types';
+import { OmitType, PartialType } from '@nestjs/swagger';
 import { CreatePrescriptionDto } from './create-prescription.dto.js';
 
+// The appointment cannot change; everything else is optional
 export class UpdatePrescriptionDto extends PartialType(
-  CreatePrescriptionDto,
+  OmitType(CreatePrescriptionDto, ['appointmentId'] as const),
 ) {}
