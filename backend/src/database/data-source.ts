@@ -22,6 +22,7 @@ import { CreateEarningsTable20261116001400 } from './migrations/20261116001400-C
 import { CreateNotificationsTable20261116001500 } from './migrations/20261116001500-CreateNotificationsTable.js';
 import { CreateAuditLogsTable20261116001600 } from './migrations/20261116001600-CreateAuditLogsTable.js';
 import { CreateDiagnosticReportsTable20261116001700 } from './migrations/20261116001700-CreateDiagnosticReportsTable.js';
+import { AddAuditLogsIndexes20261116001800 } from './migrations/20261116001800-AddAuditLogsIndexes.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -58,6 +59,7 @@ const dataSource = new DataSource({
     CreateNotificationsTable20261116001500,
     CreateAuditLogsTable20261116001600,
     CreateDiagnosticReportsTable20261116001700,
+    AddAuditLogsIndexes20261116001800,
   ],
   migrationsTableName: 'migrations',
 
