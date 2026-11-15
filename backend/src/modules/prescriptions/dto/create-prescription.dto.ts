@@ -1,9 +1,7 @@
- 
 import {
   IsArray,
   ArrayMinSize,
   ArrayMaxSize,
-  IsDateString,
   IsNotEmpty,
   IsOptional,
   IsString,
@@ -14,6 +12,7 @@ import {
 
 import { Type } from 'class-transformer';
 import { PrescriptionMedicineDto } from './prescription-medicine.dto.js';
+import { IsValidDate } from '../../../common/validators/is-valid-date.decorator.js';
 
 export class CreatePrescriptionDto {
   @IsUUID()
@@ -30,7 +29,7 @@ export class CreatePrescriptionDto {
   advice?: string;
 
   @IsOptional()
-  @IsDateString()
+  @IsValidDate()
   followUpDate?: string;
 
   @IsArray()
