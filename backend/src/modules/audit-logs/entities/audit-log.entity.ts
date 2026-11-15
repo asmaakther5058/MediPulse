@@ -5,12 +5,16 @@ import {
   ManyToOne,
   JoinColumn,
   CreateDateColumn,
+  Index,
 } from 'typeorm';
 import type { Relation } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity.js';
 
 @Entity('audit_logs')
+@Index('idx_audit_logs_created_at', ['createdAt'])
+@Index('idx_audit_logs_entity', ['entityName', 'entityId'])
+@Index('idx_audit_logs_actor', ['actor'])
 export class AuditLog {
   @PrimaryGeneratedColumn('uuid')
   id: string;
