@@ -4,6 +4,8 @@ import {
   IsNotEmpty,
   IsOptional,
   MaxLength,
+  IsNumber,
+  Min,
 } from 'class-validator';
 
 export class CreateDiagnosticTestDto {
@@ -19,7 +21,13 @@ export class CreateDiagnosticTestDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   description?: string;
+
+  // BDT, up to 2 decimals
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  price: number;
 
   @IsOptional()
   @IsString()
@@ -28,5 +36,6 @@ export class CreateDiagnosticTestDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   preparationInstructions?: string;
 }

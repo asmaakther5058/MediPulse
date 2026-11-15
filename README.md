@@ -20,17 +20,18 @@ On top of that, it uses the **patient project's** conventions and features:
 
 ```bash
 cd backend
-cp .env.example .env          # then fill in DB_PASSWORD and JWT_SECRET
+cp .env.example .env          # fill in DB_PASSWORD, JWT_SECRET, SEED_* passwords
 npm install
 createdb medipulse_db         # or create it in pgAdmin
-npm run migration:run
-npm run seed:admin            # creates the first ADMIN from SEED_ADMIN_* in .env
+npm run migration:run         # creates all 17 tables (one migration file per table)
+npm run seed:admin            # first ADMIN, from SEED_ADMIN_* in .env
+npm run seed:demo             # optional demo data (doctors, patients, the center, priced tests)
 npm run start:dev
 ```
 
-> The old migrations from both projects were replaced by one new migration
-> (`src/database/migrations/*-MergedInitialSchema.ts`). Use a **new, empty database**:
-> old data with integer IDs cannot be migrated automatically.
+- **Swagger UI:** http://localhost:3000/api/docs. Log in, click **Authorize**, and paste the `accessToken`.
+- **Postman:** import the four `MediPulse-*-Tests` collections (patient, doctor, diagnostic center, admin) and run them after `seed:demo`.
+- Prescription PDFs and test reports are saved under `UPLOAD_DIR` (default `backend/uploads`, which Git ignores).
 
 ## Team workflow (doctor side + patient side)
 
@@ -70,36 +71,30 @@ The code is split three ways so the two sides **never edit the same file**:
 
 - Register new modules only in **your side's** `*-features.module.ts`. Never touch `app.module.ts`.
 - Shared files (`src/common`, entities, `package.json`, migrations) change through a **separate small PR to `main`**. Both sides then run `git pull origin main`.
-- If you change an entity, run `npm run migration:generate src/database/migrations/<Name>` in that shared PR.
+- Migrations are one hand-written file per table (`20261116000100-CreateUsersTable.ts` style). If you change an entity, add a NEW file in that shared PR (e.g. `20261120000100-AddXToYTable.ts`), import it in `src/database/data-source.ts`, and never edit a migration that has already run.
 - Each side builds and runs on its own. The full flow (book, pay, accept) works once both are merged.
 
 ## Main flows
 
-**Doctor**
-1. `POST /doctors/register` (public) creates the profile as `PENDING`
-2. Admin approves it: `PATCH /doctors/:id/verification` `{ "verificationStatus": "APPROVED" }`
-3. Doctor adds a schedule: `POST /doctor-availability` `{ "dayOfWeek": "MONDAY", "startTime": "10:00", "endTime": "12:00" }`. It is split into 20-minute slots.
+**Roles:** `PATIENT`, `DOCTOR`, `DIAGNOSTIC_CENTER` (one center in this version), `ADMIN`. Every role has `GET /notifications/my`, plus a dashboard: `/patients/me/dashboard`, `/doctors/me/dashboard`, `/diagnostic-centers/me/dashboard` and `/admin/dashboard`.
 
-**Patient booking**
-1. `POST /auth/register` (public) creates the user and patient profile
-2. `GET /doctors?search=&specializationId=` (public)
-3. `GET /doctors/:doctorId/slots?date=YYYY-MM-DD` (public)
-4. `POST /appointments` `{ availabilityId, appointmentDate }` returns `PENDING_PAYMENT`, held 30 minutes
-5. `POST /payments` `{ appointmentId, paymentMethod }`, then `POST /payments/:id/confirm` (simulated gateway). The appointment becomes `PENDING_DOCTOR`
-6. Doctor: `PATCH /appointments/:id/accept` or `/reject`, then `/complete`
-7. Doctor: `POST /prescriptions`, `POST /test-recommendations`
-8. Patient: `GET /diagnostic-centers/approved`, then `POST /diagnostic-bookings`
+**Doctor:** `POST /doctors/register` creates the profile as PENDING. The admin approves it with `PATCH /doctors/:id/verification`. The doctor then adds a schedule with `POST /doctor-availability`, which is split into 20-minute slots.
 
-Appointment status flow:
+**Consultation**
+1. Patient: `GET /doctors?search=` and `GET /doctors/:id/slots?date=YYYY-MM-DD`.
+2. Patient: `POST /appointments` → `PENDING_PAYMENT`, slot held for 30 minutes.
+3. Patient: `POST /payments`, then `POST /payments/:id/confirm` (simulated gateway) → `PENDING_DOCTOR`. 50% goes to the doctor and 50% to the admin as earnings records.
+4. Doctor: `PATCH /appointments/:id/accept` → `ACCEPTED`, or `/reject` → `CANCELLED` (`cancelledBy: DOCTOR`, refunded, patient notified).
+5. Doctor: `/complete` → `COMPLETED`. Then `POST /prescriptions` saves it and makes a PDF (`GET /prescriptions/:id/pdf`).
 
-```
-PENDING_PAYMENT --pay--> PENDING_DOCTOR --accept--> ACCEPTED --complete--> COMPLETED
-      |                        |                       |
- hold expires /             reject                  cancel
- patient cancels               |                       |
-      v                        v                       v
-  CANCELLED                REJECTED (refunded)   CANCELLED (refunded)
-```
+**Diagnostic test**
+1. Doctor: `POST /test-recommendations` with `diagnosticTestIds: [...]` (all saved or none) → `PENDING`.
+2. Patient: `PATCH /test-recommendations/:id/approve` creates a booking at the test price (`PENDING_PAYMENT`). `/reject` creates no booking and no payment.
+3. Patient: `POST /payments/diagnostic`, then `POST /payments/:id/confirm` → booking `CONFIRMED`, and the center is notified.
+4. Center: `GET /diagnostic-bookings/center/my`, then `POST /diagnostic-bookings/:id/complete` (multipart: `findings` and/or `file`) → `COMPLETED` with a report.
+5. Patient: `GET /diagnostic-reports/my` and `/diagnostic-reports/:id/download`.
+
+Appointment statuses: `PENDING_PAYMENT → PENDING_DOCTOR → ACCEPTED → COMPLETED`, or `CANCELLED` (by `PATIENT`, `DOCTOR` or `SYSTEM` when the hold expires).
 
 ## Useful scripts
 
@@ -109,10 +104,10 @@ PENDING_PAYMENT --pay--> PENDING_DOCTOR --accept--> ACCEPTED --complete--> COMPL
 | `npm run migration:generate src/database/migrations/Name` | Generate a migration after changing an entity |
 | `npm run migration:show` / `migration:revert` | Inspect / undo |
 | `npm run seed:admin` | Create the first admin |
+| `npm run seed:demo` | Demo doctors, patients, the center and priced tests |
 
 ## Not done yet
 
 - Payments are **simulated** (`/payments/:id/confirm`). Replace this with a real gateway webhook.
-- Diagnostic test bookings have no payment step.
-- `earnings`, `notifications` and `audit_logs` tables exist, but nothing writes to them yet.
-- `diagnostic-reports` (empty in both original projects) was left out.
+- Diagnostic test revenue sharing is not defined yet (spec 9B), so test payments create no earnings records.
+- Bonus items still open: audit log writing, Mailer, `.env` validation, request logger, response envelope.

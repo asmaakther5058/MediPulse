@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { DataSource, In, Not } from 'typeorm';
+import { DataSource, Not } from 'typeorm';
 
 import { Appointment } from './entities/appointment.entity.js';
 import { Patient } from '../patients/entities/patient.entity.js';
@@ -17,8 +17,12 @@ import { AppointmentQueryDto } from '../../common/dto/appointment-query.dto.js';
 
 import {
   AppointmentStatus,
+  CancelledBy,
   PAYMENT_HOLD_MINUTES,
 } from '../../common/enums/appointment-status.enum.js';
+import { NotificationType } from '../../common/enums/notification-type.enum.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { appointmentStatusFilter } from '../../common/utils/appointment-filter.util.js';
 import { VerificationStatus } from '../../common/enums/verification-status.enum.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
 import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
@@ -41,7 +45,10 @@ import {
 // Doctor actions (accept/reject/complete) live in doctor-appointments.
 @Injectable()
 export class AppointmentsService {
-  constructor(private readonly dataSource: DataSource) {}
+  constructor(
+    private readonly dataSource: DataSource,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async create(userId: string, dto: CreateAppointmentDto) {
     const weekday = weekdayOf(dto.appointmentDate);
@@ -106,7 +113,7 @@ export class AppointmentsService {
           where: {
             availability: { id: slot.id },
             appointmentDate: dto.appointmentDate,
-            status: Not(In([AppointmentStatus.CANCELLED, AppointmentStatus.REJECTED])),
+            status: Not(AppointmentStatus.CANCELLED),
           },
         });
 
@@ -164,7 +171,7 @@ export class AppointmentsService {
     const { page, limit } = query;
 
     const [items, total] = await this.dataSource.getRepository(Appointment).findAndCount({
-      where: { ...where, ...(query.status ? { status: query.status } : {}) },
+      where: { ...where, ...appointmentStatusFilter(query) },
       relations: APPOINTMENT_RELATIONS,
       order: { appointmentDate: 'DESC', startTime: 'DESC' },
       skip: (page - 1) * limit,
@@ -217,14 +224,31 @@ export class AppointmentsService {
         throw new ConflictException('This appointment cannot be cancelled');
       }
 
+      const wasPaid = appointment.status !== AppointmentStatus.PENDING_PAYMENT;
+
       appointment.status = AppointmentStatus.CANCELLED;
       appointment.holdExpiresAt = null;
+      appointment.cancelledBy = CancelledBy.PATIENT;
       appointment.cancellationReason = dto.cancellationReason ?? null;
 
       await manager.getRepository(Appointment).save(appointment);
       await refundPaidPayments(manager, appointment.id);
 
-      return formatAppointment(appointment);
+      if (wasPaid) {
+        await this.notifications.notify(
+          {
+            userId: appointment.doctor.user.id,
+            type: NotificationType.APPOINTMENT_CANCELLED,
+            title: 'Appointment cancelled by the patient',
+            message: `${appointment.patient.user.fullName} (${appointment.patient.patientCode}) cancelled the appointment on ${appointment.appointmentDate} at ${appointment.startTime.slice(0, 5)}.`,
+            relatedEntityType: 'appointment',
+            relatedEntityId: appointment.id,
+          },
+          manager,
+        );
+      }
+
+      return formatAppointment(await lockAppointment(manager, appointment.id));
     });
   }
 }

@@ -8,6 +8,7 @@ import {
   Unique,
   Check,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { sqlIn } from '../../../common/utils/sql.util.js';
 
 import { Payment } from '../../payments/entities/payment.entity.js';
@@ -26,14 +27,14 @@ export class Earning {
     onDelete: 'RESTRICT',
   })
   @JoinColumn({ name: 'payment_id' })
-  payment: Payment;
+  payment: Relation<Payment>;
 
   @ManyToOne(() => User, {
     nullable: false,
     onDelete: 'RESTRICT',
   })
   @JoinColumn({ name: 'beneficiary_user_id' })
-  beneficiaryUser: User;
+  beneficiaryUser: Relation<User>;
 
   @Column({
     name: 'beneficiary_role',

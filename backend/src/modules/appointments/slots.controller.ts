@@ -1,9 +1,11 @@
 import { Controller, Get, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 
+import { ApiTags } from '@nestjs/swagger';
 import { SlotsService } from './slots.service.js';
 import { SlotsQueryDto } from './dto/slots-query.dto.js';
 import { Public } from '../../common/decorators/public.decorator.js';
 
+@ApiTags('Doctors')
 @Controller('doctors')
 export class SlotsController {
   constructor(private readonly slotsService: SlotsService) {}

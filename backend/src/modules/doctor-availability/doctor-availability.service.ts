@@ -15,6 +15,7 @@ import { CreateDoctorAvailabilityDto } from './dto/create-doctor-availability.dt
 import { UpdateDoctorAvailabilityDto } from './dto/update-doctor-availability.dto.js';
 
 import { UserRole } from '../../common/enums/user-role.enum.js';
+import { PaginationQueryDto, paginate } from '../../common/dto/pagination-query.dto.js';
 import { VerificationStatus } from '../../common/enums/verification-status.enum.js';
 
 const SLOT_MINUTES = 20;
@@ -116,20 +117,20 @@ export class DoctorAvailabilityService {
     }));
   }
 
-  async findAll(userId: string, role: UserRole) {
-    if (role === UserRole.ADMIN) {
-      return this.availabilityRepository.find({
-        relations: { doctor: true },
-        order: { dayOfWeek: 'ASC', startTime: 'ASC' },
-      });
-    }
+  // Doctor: own slots. Admin: everyone's. limit up to 50 per page.
+  async findAll(userId: string, role: UserRole, query: PaginationQueryDto) {
+    const { page, limit } = query;
+    const where = role === UserRole.ADMIN ? {} : { doctor: { id: (await this.getDoctor(userId)).id } };
 
-    const doctor = await this.getDoctor(userId);
-
-    return this.availabilityRepository.find({
-      where: { doctor: { id: doctor.id } },
+    const [slots, total] = await this.availabilityRepository.findAndCount({
+      where,
+      relations: role === UserRole.ADMIN ? { doctor: true } : {},
       order: { dayOfWeek: 'ASC', startTime: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return paginate(slots, total, page, limit);
   }
 
   async findOne(id: string, userId: string, role: UserRole) {

@@ -1,4 +1,3 @@
-
 import {
   Entity,
   PrimaryGeneratedColumn,
@@ -10,6 +9,7 @@ import {
   Check,
   Index,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { sqlIn } from '../../../common/utils/sql.util.js';
 
 import { DiagnosticBookingStatus } from '../../../common/enums/diagnostic-booking-status.enum.js';
@@ -17,12 +17,15 @@ import { Patient } from '../../patients/entities/patient.entity.js';
 import { DiagnosticCenter } from '../../diagnostic-centers/entities/diagnostic-center.entity.js';
 import { TestRecommendation } from '../../test-recommendations/entities/test-recommendation.entity.js';
 
+// Created when the patient approves a recommendation (PENDING_PAYMENT),
+// confirmed when the test fee is paid, completed by the center.
 @Entity('diagnostic_bookings')
 @Check('chk_booking_status', `"status" IN (${sqlIn(DiagnosticBookingStatus)})`)
+@Check('chk_booking_price', `"price" >= 0`)
 // One live booking per recommendation
 @Index('uq_booking_active_recommendation', ['recommendation'], {
   unique: true,
-  where: `"status" NOT IN ('CANCELLED', 'REJECTED')`,
+  where: `"status" <> 'CANCELLED'`,
 })
 @Index('idx_bookings_patient', ['patient'])
 @Index('idx_bookings_center', ['diagnosticCenter'])
@@ -36,10 +39,14 @@ export class DiagnosticBooking {
   @Column({ name: 'booking_time', type: 'time', nullable: true })
   bookingTime: string | null;
 
+  // Test price at the moment of approval
+  @Column({ type: 'numeric', precision: 10, scale: 2 })
+  price: string;
+
   @Column({
     type: 'varchar',
     length: 20,
-    default: DiagnosticBookingStatus.PENDING,
+    default: DiagnosticBookingStatus.PENDING_PAYMENT,
   })
   status: DiagnosticBookingStatus;
 
@@ -52,21 +59,24 @@ export class DiagnosticBooking {
   @Column({ name: 'cancellation_reason', type: 'text', nullable: true })
   cancellationReason: string | null;
 
+  @Column({ name: 'completed_at', type: 'timestamptz', nullable: true })
+  completedAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt: Date;
 
-  @ManyToOne(() => Patient, { nullable: false, onDelete: 'CASCADE' })
+  @ManyToOne(() => Patient, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'patient_id' })
-  patient: Patient;
+  patient: Relation<Patient>;
 
   @ManyToOne(() => DiagnosticCenter, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'diagnostic_center_id' })
-  diagnosticCenter: DiagnosticCenter;
+  diagnosticCenter: Relation<DiagnosticCenter>;
 
   @ManyToOne(() => TestRecommendation, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'recommendation_id' })
-  recommendation: TestRecommendation;
+  recommendation: Relation<TestRecommendation>;
 }

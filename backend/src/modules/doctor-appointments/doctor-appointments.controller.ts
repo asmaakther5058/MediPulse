@@ -7,6 +7,7 @@ import {
   Patch,
   Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { DoctorAppointmentsService } from './doctor-appointments.service.js';
 import { RejectAppointmentDto } from './dto/reject-appointment.dto.js';
@@ -18,6 +19,8 @@ import { UserRole } from '../../common/enums/user-role.enum.js';
 import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
 
 // Doctor side of /appointments. Patient routes are in the appointments module.
+@ApiTags('Appointments')
+@ApiBearerAuth()
 @Controller('appointments')
 @Roles(UserRole.DOCTOR)
 export class DoctorAppointmentsController {

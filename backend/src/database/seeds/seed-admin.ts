@@ -11,7 +11,9 @@ async function seedAdmin() {
   const password = process.env.SEED_ADMIN_PASSWORD;
 
   if (!email || !password || password.length < 8) {
-    throw new Error('Set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD (min 8 chars)');
+    throw new Error(
+      'Set SEED_ADMIN_EMAIL and SEED_ADMIN_PASSWORD (min 8 chars)',
+    );
   }
 
   await dataSource.initialize();

@@ -11,6 +11,7 @@ import { PrescriptionsModule } from './modules/prescriptions/prescriptions.modul
 import { TestRecommendationsModule } from './modules/test-recommendations/test-recommendations.module.js';
 import { DiagnosticTestsModule } from './modules/diagnostic-tests/diagnostic-tests.module.js';
 import { DiagnosticCentersModule } from './modules/diagnostic-centers/diagnostic-centers.module.js';
+import { DiagnosticReportsModule } from './modules/diagnostic-reports/diagnostic-reports.module.js';
 import { PaymentReportsModule } from './modules/payment-reports/payment-reports.module.js';
 
 @Module({
@@ -23,6 +24,7 @@ import { PaymentReportsModule } from './modules/payment-reports/payment-reports.
     DiagnosticTestsModule,
     DiagnosticCentersModule,
     PaymentReportsModule,
+    DiagnosticReportsModule,
   ],
 })
 export class DoctorFeaturesModule {}

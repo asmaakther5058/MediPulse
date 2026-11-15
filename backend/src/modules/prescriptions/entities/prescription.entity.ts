@@ -13,6 +13,7 @@ import {
 } from 'typeorm';
 
 import type { Relation } from 'typeorm';
+import { Exclude } from 'class-transformer';
 import { Patient } from '../../patients/entities/patient.entity.js';
 import { Doctor } from '../../doctors/entities/doctor.entity.js';
 import { Appointment } from '../../appointments/entities/appointment.entity.js';
@@ -27,15 +28,15 @@ export class Prescription {
 
   @OneToOne(() => Appointment, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'appointment_id' })
-  appointment: Appointment;
+  appointment: Relation<Appointment>;
 
   @ManyToOne(() => Patient, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'patient_id' })
-  patient: Patient;
+  patient: Relation<Patient>;
 
   @ManyToOne(() => Doctor, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'doctor_id' })
-  doctor: Doctor;
+  doctor: Relation<Doctor>;
 
   @Column({ type: 'text' })
   diagnosis: string;
@@ -49,6 +50,11 @@ export class Prescription {
     nullable: true,
   })
   followUpDate: string | null;
+
+  // Relative path of the generated PDF under UPLOAD_DIR (never sent to clients)
+  @Exclude()
+  @Column({ name: 'pdf_path', type: 'varchar', length: 255, nullable: true })
+  pdfPath: string | null;
 
   @OneToMany(
   () => PrescriptionMedicine,

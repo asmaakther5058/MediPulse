@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 
 import { Patient } from './entities/patient.entity.js';
 import { User } from '../users/entities/user.entity.js';
@@ -20,6 +20,15 @@ import { UserRole } from '../../common/enums/user-role.enum.js';
 import { AppointmentStatus } from '../../common/enums/appointment-status.enum.js';
 import { generatePatientCode } from '../../common/utils/codes.util.js';
 import { isUniqueViolation } from '../../common/utils/safe-user.util.js';
+import { DiagnosticBooking } from '../diagnostic-bookings/entities/diagnostic-booking.entity.js';
+import { DiagnosticReport } from '../diagnostic-reports/entities/diagnostic-report.entity.js';
+import { TestRecommendation } from '../test-recommendations/entities/test-recommendation.entity.js';
+import { Notification } from '../notifications/entities/notification.entity.js';
+import { DiagnosticBookingStatus } from '../../common/enums/diagnostic-booking-status.enum.js';
+import { RecommendationStatus } from '../../common/enums/recommendation-status.enum.js';
+import { AppointmentCategory, CATEGORY_STATUSES } from '../../common/enums/appointment-status.enum.js';
+import { PaginationQueryDto, paginate } from '../../common/dto/pagination-query.dto.js';
+import { expireStaleHolds } from '../../common/utils/appointment.util.js';
 
 // A doctor has a care relationship with a patient only through
 // a paid appointment (not a rejected/cancelled/unpaid one).
@@ -43,6 +52,8 @@ export class PatientsService {
 
     @InjectRepository(Prescription)
     private readonly prescriptionRepository: Repository<Prescription>,
+
+    private readonly dataSource: DataSource,
   ) {}
 
   private format(patient: Patient) {
@@ -123,13 +134,70 @@ export class PatientsService {
     }
   }
 
-  async findAll() {
-    const patients = await this.patientRepository.find({
+  async findAll(query: PaginationQueryDto) {
+    const { page, limit } = query;
+    const [patients, total] = await this.patientRepository.findAndCount({
       relations: { user: true },
       order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
 
-    return patients.map((p) => this.format(p));
+    return paginate(patients.map((p) => this.format(p)), total, page, limit);
+  }
+
+  // Patient overview (spec 3A)
+  async dashboard(userId: string) {
+    const patient = await this.findMine(userId);
+    await expireStaleHolds(this.dataSource.manager);
+
+    const mine = { patient: { id: patient.id } };
+    const countIn = (statuses: string[]) =>
+      this.appointmentRepository.count({ where: statuses.map((status) => ({ ...mine, status })) as never });
+
+    const [total, upcoming, completed, cancelled, pendingTests, completedTests, notifications, next] = await Promise.all([
+      this.appointmentRepository.count({ where: mine }),
+      countIn(CATEGORY_STATUSES[AppointmentCategory.UPCOMING]),
+      countIn(CATEGORY_STATUSES[AppointmentCategory.COMPLETED]),
+      countIn(CATEGORY_STATUSES[AppointmentCategory.CANCELLED]),
+      this.dataSource.getRepository(TestRecommendation).count({ where: { ...mine, status: RecommendationStatus.PENDING } }),
+      this.dataSource.getRepository(DiagnosticBooking).count({ where: { ...mine, status: DiagnosticBookingStatus.COMPLETED } }),
+      this.dataSource.getRepository(Notification).find({
+        where: { recipient: { id: userId } },
+        order: { createdAt: 'DESC' },
+        take: 5,
+      }),
+      this.appointmentRepository.findOne({
+        where: CATEGORY_STATUSES[AppointmentCategory.UPCOMING].map((status) => ({ ...mine, status })) as never,
+        relations: { doctor: { user: true, specialization: true } },
+        order: { appointmentDate: 'ASC', startTime: 'ASC' },
+      }),
+    ]);
+
+    return {
+      patientName: patient.user.fullName,
+      patientCode: patient.patientCode,
+      appointments: { total, upcoming, completed, cancelled },
+      pendingTestRecommendations: pendingTests,
+      completedDiagnosticTests: completedTests,
+      nextAppointment: next
+        ? {
+            id: next.id,
+            appointmentDate: next.appointmentDate,
+            startTime: next.startTime,
+            status: next.status,
+            doctor: next.doctor.user.fullName,
+            specialization: next.doctor.specialization?.name,
+          }
+        : null,
+      recentNotifications: notifications.map((n) => ({
+        id: n.id,
+        title: n.title,
+        message: n.message,
+        isRead: n.isRead,
+        createdAt: n.createdAt,
+      })),
+    };
   }
 
   async findMine(userId: string) {
@@ -216,7 +284,13 @@ export class PatientsService {
       throw new ForbiddenException('You are not allowed to access this medical history');
     }
 
-    const [appointments, prescriptions] = await Promise.all([
+    // Doctors see bookings/reports only for tests they recommended
+    const bookingWhere =
+      role === UserRole.DOCTOR
+        ? { patient: { id: patientId }, recommendation: { doctor: { user: { id: requesterId } } } }
+        : { patient: { id: patientId } };
+
+    const [appointments, prescriptions, bookings, reports] = await Promise.all([
       this.appointmentRepository.find({
         where,
         relations: { doctor: { user: true, specialization: true } },
@@ -225,6 +299,16 @@ export class PatientsService {
       this.prescriptionRepository.find({
         where,
         relations: { medicines: true, doctor: { user: true }, appointment: true },
+        order: { createdAt: 'DESC' },
+      }),
+      this.dataSource.getRepository(DiagnosticBooking).find({
+        where: bookingWhere,
+        relations: { recommendation: { diagnosticTest: true, doctor: { user: true } } },
+        order: { bookingDate: 'DESC' },
+      }),
+      this.dataSource.getRepository(DiagnosticReport).find({
+        where: { booking: bookingWhere },
+        relations: { booking: { recommendation: { diagnosticTest: true } } },
         order: { createdAt: 'DESC' },
       }),
     ]);
@@ -254,7 +338,24 @@ export class PatientsService {
         advice: p.advice,
         followUpDate: p.followUpDate,
         medicines: p.medicines,
+        pdfUrl: `/prescriptions/${p.id}/pdf`,
         createdAt: p.createdAt,
+      })),
+      diagnosticBookings: bookings.map((b) => ({
+        id: b.id,
+        testName: b.recommendation.diagnosticTest.testName,
+        recommendedBy: b.recommendation.doctor.user.fullName,
+        bookingDate: b.bookingDate,
+        status: b.status,
+        completedAt: b.completedAt,
+      })),
+      diagnosticReports: reports.map((r) => ({
+        id: r.id,
+        bookingId: r.booking.id,
+        testName: r.booking.recommendation.diagnosticTest.testName,
+        findings: r.findings,
+        downloadUrl: r.filePath ? `/diagnostic-reports/${r.id}/download` : null,
+        createdAt: r.createdAt,
       })),
     };
   }

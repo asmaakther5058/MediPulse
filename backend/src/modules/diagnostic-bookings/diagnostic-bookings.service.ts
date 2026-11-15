@@ -1,334 +1,306 @@
-
 import {
-  Injectable,
-  NotFoundException,
-  ForbiddenException,
   BadRequestException,
   ConflictException,
+  Injectable,
+  NotFoundException,
 } from '@nestjs/common';
+import { DataSource, EntityManager } from 'typeorm';
 
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DiagnosticBooking } from './entities/diagnostic-booking.entity.js';
+import { TestRecommendation } from '../test-recommendations/entities/test-recommendation.entity.js';
+import { Payment } from '../payments/entities/payment.entity.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+
+import { CreateDiagnosticBookingDto } from './dto/create-diagnostic-booking.dto.js';
+import { RejectRecommendationDto } from './dto/reject-recommendation.dto.js';
+import { CancelDiagnosticBookingDto } from './dto/cancel-diagnostic-booking.dto.js';
+import { BookingQueryDto } from './dto/booking-query.dto.js';
 
 import { DiagnosticBookingStatus } from '../../common/enums/diagnostic-booking-status.enum.js';
 import { RecommendationStatus } from '../../common/enums/recommendation-status.enum.js';
-import { VerificationStatus } from '../../common/enums/verification-status.enum.js';
+import { PaymentStatus } from '../../common/enums/payment-status.enum.js';
+import { NotificationType } from '../../common/enums/notification-type.enum.js';
+import { UserRole } from '../../common/enums/user-role.enum.js';
+import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
+import { paginate } from '../../common/dto/pagination-query.dto.js';
 import { isUniqueViolation } from '../../common/utils/safe-user.util.js';
-import { DiagnosticBooking } from './entities/diagnostic-booking.entity.js';
-import { CreateDiagnosticBookingDto } from './dto/create-diagnostic-booking.dto.js';
+import { getTheDiagnosticCenter } from '../../common/utils/center.util.js';
+import { todayInAppZone, weekdayOf } from '../../common/utils/date.util.js';
 
-import { Patient } from '../patients/entities/patient.entity.js';
-import { DiagnosticCenter } from '../diagnostic-centers/entities/diagnostic-center.entity.js';
-import { TestRecommendation } from '../test-recommendations/entities/test-recommendation.entity.js';
+const RELATIONS = {
+  patient: { user: true },
+  diagnosticCenter: true,
+  recommendation: { diagnosticTest: true, doctor: { user: true } },
+} as const;
 
+// Patient side of diagnostic tests (spec 3G, 3H, workflow 5):
+// approve or reject a recommendation, pay, cancel; plus the center's
+// list of confirmed bookings (spec 5D).
 @Injectable()
 export class DiagnosticBookingsService {
   constructor(
-    @InjectRepository(DiagnosticBooking)
-    private readonly bookingRepository: Repository<DiagnosticBooking>,
-
-    @InjectRepository(Patient)
-    private readonly patientRepository: Repository<Patient>,
-
-    @InjectRepository(DiagnosticCenter)
-    private readonly centerRepository: Repository<DiagnosticCenter>,
-
-    @InjectRepository(TestRecommendation)
-    private readonly recommendationRepository: Repository<TestRecommendation>,
+    private readonly dataSource: DataSource,
+    private readonly notifications: NotificationsService,
   ) {}
 
-  private formatBooking(booking: DiagnosticBooking) {
+  private format(b: DiagnosticBooking, payments: Payment[] = []) {
+    const paid = payments.find((p) => p.status === PaymentStatus.PAID);
+    const refunded = payments.find((p) => p.status === PaymentStatus.REFUNDED);
+    const pending = payments.find((p) => p.status === PaymentStatus.PENDING);
+
     return {
-      id: booking.id,
-      bookingDate: booking.bookingDate,
-      bookingTime: booking.bookingTime,
-      status: booking.status,
-      patientNote: booking.patientNote,
-      centerNote: booking.centerNote,
-      cancellationReason: booking.cancellationReason,
-      patient: booking.patient
+      id: b.id,
+      status: b.status,
+      bookingDate: b.bookingDate,
+      bookingTime: b.bookingTime,
+      price: b.price,
+      currency: 'BDT',
+      paymentStatus: (paid ?? refunded ?? pending)?.status ?? null,
+      patientNote: b.patientNote,
+      centerNote: b.centerNote,
+      cancellationReason: b.cancellationReason,
+      completedAt: b.completedAt,
+      patient: b.patient
+        ? { id: b.patient.id, patientCode: b.patient.patientCode, name: b.patient.user?.fullName, phone: b.patient.user?.phone }
+        : undefined,
+      test: b.recommendation?.diagnosticTest
         ? {
-            id: booking.patient.id,
-            name: booking.patient.user?.fullName,
+            id: b.recommendation.diagnosticTest.id,
+            testName: b.recommendation.diagnosticTest.testName,
+            preparationInstructions: b.recommendation.diagnosticTest.preparationInstructions,
           }
         : undefined,
-      diagnosticCenter: booking.diagnosticCenter
-        ? {
-            id: booking.diagnosticCenter.id,
-            centerName: booking.diagnosticCenter.centerName,
-          }
+      recommendationId: b.recommendation?.id,
+      recommendedBy: b.recommendation?.doctor?.user?.fullName,
+      diagnosticCenter: b.diagnosticCenter
+        ? { id: b.diagnosticCenter.id, centerName: b.diagnosticCenter.centerName, address: b.diagnosticCenter.address }
         : undefined,
-      recommendation: booking.recommendation
-        ? {
-            id: booking.recommendation.id,
-            status: booking.recommendation.status,
-          }
-        : undefined,
-      createdAt: booking.createdAt,
-      updatedAt: booking.updatedAt,
+      createdAt: b.createdAt,
+      updatedAt: b.updatedAt,
     };
   }
 
-  async create(
-    patientUserId: string,
-    dto: CreateDiagnosticBookingDto,
-  ) {
-    const patient = await this.patientRepository.findOne({
-      where: { user: { id: patientUserId } },
-      relations: {
-        user: true,
-      },
+  private async withPayments(manager: EntityManager, bookings: DiagnosticBooking[]) {
+    if (!bookings.length) return [];
+
+    const payments = await manager.getRepository(Payment).find({
+      where: bookings.map((b) => ({ diagnosticBooking: { id: b.id } })),
+      relations: { diagnosticBooking: true },
     });
 
-    if (!patient) {
-      throw new NotFoundException('Patient profile not found');
+    return bookings.map((b) => this.format(b, payments.filter((p) => p.diagnosticBooking?.id === b.id)));
+  }
+
+  private async lockOwnRecommendation(manager: EntityManager, id: string, patientUserId: string) {
+    const locked = await manager
+      .getRepository(TestRecommendation)
+      .createQueryBuilder('r')
+      .where('r.id = :id', { id })
+      .setLock('pessimistic_write')
+      .getOne();
+
+    const rec = locked
+      ? await manager.getRepository(TestRecommendation).findOne({
+          where: { id },
+          relations: { patient: { user: true }, doctor: { user: true }, diagnosticTest: true },
+        })
+      : null;
+
+    if (!rec || rec.patient.user.id !== patientUserId) {
+      throw new NotFoundException('Test recommendation not found');
     }
 
-    const recommendation = await this.recommendationRepository.findOne({
-      where: {
-        id: dto.recommendationId,
-        patient: { id: patient.id },
-      },
-      relations: {
-        patient: true,
-      },
-    });
-
-    if (!recommendation) {
-      throw new NotFoundException(
-        'Test recommendation not found for this patient',
-      );
+    if (rec.status !== RecommendationStatus.PENDING) {
+      throw new ConflictException(`This recommendation is already ${rec.status}`);
     }
 
-    if (recommendation.status !== RecommendationStatus.RECOMMENDED) {
-      throw new ConflictException(
-        'This recommendation is not available for booking',
-      );
+    return rec;
+  }
+
+  // Green button: approve -> booking at the test price, waiting for payment
+  async approve(recommendationId: string, patientUserId: string, dto: CreateDiagnosticBookingDto) {
+    weekdayOf(dto.bookingDate);
+
+    if (dto.bookingDate < todayInAppZone()) {
+      throw new BadRequestException('Booking date cannot be in the past');
     }
-
-    const center = await this.centerRepository.findOne({
-      where: { id: dto.diagnosticCenterId },
-    });
-
-    if (!center) {
-      throw new NotFoundException('Diagnostic center not found');
-    }
-
-    if (center.verificationStatus !== VerificationStatus.APPROVED) {
-      throw new ForbiddenException(
-        'This diagnostic center is not approved',
-      );
-    }
-
-    const bookingDate = new Date(`${dto.bookingDate}T00:00:00+06:00`);
-    const today = new Date(
-      new Date().toLocaleString('en-US', {
-        timeZone: 'Asia/Dhaka',
-      }),
-    );
-
-    today.setHours(0, 0, 0, 0);
-
-    if (
-      Number.isNaN(bookingDate.getTime()) ||
-      bookingDate < today
-    ) {
-      throw new BadRequestException(
-        'Booking date cannot be in the past',
-      );
-    }
-
-    const booking = this.bookingRepository.create({
-      patient,
-      recommendation,
-      diagnosticCenter: center,
-      bookingDate: dto.bookingDate,
-      bookingTime: dto.bookingTime ?? null,
-      patientNote: dto.patientNote ?? null,
-      status: DiagnosticBookingStatus.PENDING,
-    });
 
     try {
-      await this.bookingRepository.save(booking);
+      const bookingId = await this.dataSource.transaction(async (manager) => {
+        const rec = await this.lockOwnRecommendation(manager, recommendationId, patientUserId);
+
+        if (!rec.diagnosticTest.isActive) {
+          throw new ConflictException('This test is no longer offered');
+        }
+
+        const center = await getTheDiagnosticCenter(manager);
+
+        const booking = await manager.getRepository(DiagnosticBooking).save(
+          manager.getRepository(DiagnosticBooking).create({
+            patient: rec.patient,
+            recommendation: rec,
+            diagnosticCenter: center,
+            bookingDate: dto.bookingDate,
+            bookingTime: dto.bookingTime ?? null,
+            patientNote: dto.patientNote ?? null,
+            price: rec.diagnosticTest.price,
+            status: DiagnosticBookingStatus.PENDING_PAYMENT,
+          }),
+        );
+
+        rec.status = RecommendationStatus.APPROVED;
+        rec.respondedAt = new Date();
+        await manager.getRepository(TestRecommendation).save(rec);
+
+        await this.notifications.notify({
+          userId: rec.doctor.user.id,
+          type: NotificationType.TEST_RECOMMENDATION_ANSWERED,
+          title: 'Test approved by patient',
+          message: `${rec.patient.user.fullName} (${rec.patient.patientCode}) approved ${rec.diagnosticTest.testName}.`,
+          relatedEntityType: 'test_recommendation',
+          relatedEntityId: rec.id,
+        }, manager);
+
+        return booking.id;
+      });
+
+      const [booking] = await this.withPayments(this.dataSource.manager, [
+        await this.dataSource.getRepository(DiagnosticBooking).findOneOrFail({ where: { id: bookingId }, relations: RELATIONS }),
+      ]);
+
+      return {
+        message: `Test approved. Pay ${booking.price} BDT to confirm the booking (POST /payments/diagnostic).`,
+        booking,
+      };
     } catch (error) {
       if (isUniqueViolation(error)) {
-        throw new ConflictException(
-          'This recommendation already has an active booking',
-        );
+        throw new ConflictException('This recommendation already has a booking');
       }
       throw error;
     }
-
-    recommendation.status = RecommendationStatus.BOOKED;
-    await this.recommendationRepository.save(recommendation);
-
-    return this.findOne(booking.id);
   }
 
-  async findOne(id: string) {
-    const booking = await this.bookingRepository.findOne({
-      where: { id },
-      relations: {
-          patient: {
-           user: true,
-   },
-  diagnosticCenter: true,
-  recommendation: true,
-},
+  // Red button: reject -> no booking, no payment (business rule 12)
+  async reject(recommendationId: string, patientUserId: string, dto: RejectRecommendationDto) {
+    return this.dataSource.transaction(async (manager) => {
+      const rec = await this.lockOwnRecommendation(manager, recommendationId, patientUserId);
+
+      rec.status = RecommendationStatus.REJECTED;
+      rec.respondedAt = new Date();
+      rec.rejectionReason = dto.reason ?? null;
+      await manager.getRepository(TestRecommendation).save(rec);
+
+      await this.notifications.notify({
+        userId: rec.doctor.user.id,
+        type: NotificationType.TEST_RECOMMENDATION_ANSWERED,
+        title: 'Test declined by patient',
+        message: `${rec.patient.user.fullName} (${rec.patient.patientCode}) declined ${rec.diagnosticTest.testName}${dto.reason ? `: ${dto.reason}` : '.'}`,
+        relatedEntityType: 'test_recommendation',
+        relatedEntityId: rec.id,
+      }, manager);
+
+      return { id: rec.id, status: rec.status, rejectionReason: rec.rejectionReason, respondedAt: rec.respondedAt };
+    });
+  }
+
+  private async list(where: Record<string, unknown>, query: BookingQueryDto) {
+    const { page, limit } = query;
+    const [items, total] = await this.dataSource.getRepository(DiagnosticBooking).findAndCount({
+      where: { ...where, ...(query.status ? { status: query.status } : {}) },
+      relations: RELATIONS,
+      order: { bookingDate: 'DESC', createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
 
-    if (!booking) {
+    return paginate(await this.withPayments(this.dataSource.manager, items), total, page, limit);
+  }
+
+  findForPatient(patientUserId: string, query: BookingQueryDto) {
+    return this.list({ patient: { user: { id: patientUserId } } }, query);
+  }
+
+  // Center: confirmed (paid) bookings by default (spec 5D)
+  findForCenter(query: BookingQueryDto) {
+    return this.list(query.status ? {} : { status: DiagnosticBookingStatus.CONFIRMED }, query);
+  }
+
+  findAll(query: BookingQueryDto) {
+    return this.list({}, query);
+  }
+
+  async findOne(id: string, user: AuthUser) {
+    const booking = await this.dataSource.getRepository(DiagnosticBooking).findOne({ where: { id }, relations: RELATIONS });
+
+    const allowed =
+      booking &&
+      (user.role === UserRole.ADMIN ||
+        user.role === UserRole.DIAGNOSTIC_CENTER ||
+        booking.patient.user.id === user.id);
+
+    if (!allowed) {
       throw new NotFoundException('Diagnostic booking not found');
     }
 
-    return this.formatBooking(booking);
+    return (await this.withPayments(this.dataSource.manager, [booking]))[0];
   }
 
-  async findForPatient(patientUserId: string) {
-    const bookings = await this.bookingRepository.find({
-      where: {
-        patient: { user: { id: patientUserId } },
-      },
-      relations: {
-  patient: {
-    user: true,
-  },
-  diagnosticCenter: true,
-  recommendation: true,
-},
-      order: { createdAt: 'DESC' },
-    });
+  // Patient cancels before the test is done. Paid -> refunded; the
+  // recommendation goes back to PENDING so it can be approved again.
+  async cancelByPatient(id: string, patientUserId: string, dto: CancelDiagnosticBookingDto) {
+    const result = await this.dataSource.transaction(async (manager) => {
+      const locked = await manager
+        .getRepository(DiagnosticBooking)
+        .createQueryBuilder('b')
+        .where('b.id = :id', { id })
+        .setLock('pessimistic_write')
+        .getOne();
 
-    return bookings.map((booking) => this.formatBooking(booking));
-  }
+      const booking = locked
+        ? await manager.getRepository(DiagnosticBooking).findOne({ where: { id }, relations: RELATIONS })
+        : null;
 
-  async findForCenter(centerUserId: string) {
-    const bookings = await this.bookingRepository.find({
-      where: {
-        diagnosticCenter: { user: { id: centerUserId } },
-      },
-      relations: {
-  patient: {
-    user: true,
-  },
-  diagnosticCenter: true,
-  recommendation: true,
-},
-      order: { createdAt: 'DESC' },
-    });
+      if (!booking || booking.patient.user.id !== patientUserId) {
+        throw new NotFoundException('Diagnostic booking not found');
+      }
 
-    return bookings.map((booking) => this.formatBooking(booking));
-  }
+      if (![DiagnosticBookingStatus.PENDING_PAYMENT, DiagnosticBookingStatus.CONFIRMED].includes(booking.status)) {
+        throw new ConflictException('This booking cannot be cancelled');
+      }
 
-  async findAll() {
-    const bookings = await this.bookingRepository.find({
-      relations: {
-  patient: {
-    user: true,
-  },
-  diagnosticCenter: true,
-  recommendation: true,
-},
-      order: { createdAt: 'DESC' },
-    });
+      const wasConfirmed = booking.status === DiagnosticBookingStatus.CONFIRMED;
 
-    return bookings.map((booking) => this.formatBooking(booking));
-  }
+      booking.status = DiagnosticBookingStatus.CANCELLED;
+      booking.cancellationReason = dto.cancellationReason ?? null;
+      await manager.getRepository(DiagnosticBooking).save(booking);
 
-  async cancelByPatient(
-    id: string,
-    patientUserId: string,
-    reason?: string,
-  ) {
-    const booking = await this.bookingRepository.findOne({
-      where: { id },
-      relations: {
-        patient: {
-          user: true,
-        },
-        recommendation: true,
-      },
-    });
-
-    if (!booking) {
-      throw new NotFoundException('Diagnostic booking not found');
-    }
-
-    if (booking.patient.user.id !== patientUserId) {
-      throw new ForbiddenException(
-        'You cannot cancel another patient booking',
+      await manager.getRepository(Payment).update(
+        { diagnosticBooking: { id }, status: PaymentStatus.PAID },
+        { status: PaymentStatus.REFUNDED },
       );
-    }
-
-    if (![DiagnosticBookingStatus.PENDING, DiagnosticBookingStatus.ACCEPTED].includes(booking.status)) {
-      throw new BadRequestException(
-        'This booking cannot be cancelled',
+      await manager.getRepository(Payment).update(
+        { diagnosticBooking: { id }, status: PaymentStatus.PENDING },
+        { status: PaymentStatus.FAILED },
       );
-    }
 
-    booking.status = DiagnosticBookingStatus.CANCELLED;
-    booking.cancellationReason = reason ?? null;
+      await manager.getRepository(TestRecommendation).update(booking.recommendation.id, {
+        status: RecommendationStatus.PENDING,
+        respondedAt: null,
+      });
 
-    await this.bookingRepository.save(booking);
+      if (wasConfirmed) {
+        await this.notifications.notifyRole(UserRole.DIAGNOSTIC_CENTER, {
+          type: NotificationType.TEST_BOOKING_CONFIRMED,
+          title: 'Test booking cancelled',
+          message: `${booking.recommendation.diagnosticTest.testName} for patient ${booking.patient.patientCode} on ${booking.bookingDate} was cancelled.`,
+          relatedEntityType: 'diagnostic_booking',
+          relatedEntityId: booking.id,
+        }, manager);
+      }
 
-    booking.recommendation.status = RecommendationStatus.RECOMMENDED;
-    await this.recommendationRepository.save(booking.recommendation);
-
-    return this.findOne(id);
-  }
-
-  async updateStatusByCenter(
-    id: string,
-    centerUserId: string,
-    status: DiagnosticBookingStatus.ACCEPTED | DiagnosticBookingStatus.REJECTED | DiagnosticBookingStatus.COMPLETED,
-    note?: string,
-  ) {
-    const booking = await this.bookingRepository.findOne({
-      where: { id },
-      relations: {
-  diagnosticCenter: {
-    user: true,
-  },
-  recommendation: true,
-},
+      return booking.id;
     });
 
-    if (!booking) {
-      throw new NotFoundException('Diagnostic booking not found');
-    }
-
-    if (booking.diagnosticCenter.user.id !== centerUserId) {
-      throw new ForbiddenException(
-        'You cannot manage another center booking',
-      );
-    }
-
-    const validTransitions: Partial<Record<DiagnosticBookingStatus, DiagnosticBookingStatus[]>> = {
-      [DiagnosticBookingStatus.PENDING]: [DiagnosticBookingStatus.ACCEPTED, DiagnosticBookingStatus.REJECTED],
-      [DiagnosticBookingStatus.ACCEPTED]: [DiagnosticBookingStatus.COMPLETED],
-    };
-
-    if (!validTransitions[booking.status]?.includes(status)) {
-      throw new BadRequestException(
-        `Cannot change booking status from ${booking.status} to ${status}`,
-      );
-    }
-
-    booking.status = status;
-
-    if (status === DiagnosticBookingStatus.REJECTED) {
-      booking.recommendation.status = RecommendationStatus.RECOMMENDED;
-    }
-
-    if (status === DiagnosticBookingStatus.COMPLETED) {
-      booking.recommendation.status = RecommendationStatus.COMPLETED;
-    }
-
-    booking.centerNote = note ?? booking.centerNote;
-
-    await this.bookingRepository.save(booking);
-    await this.recommendationRepository.save(booking.recommendation);
-
-    return this.findOne(id);
+    return this.findOne(result, { id: patientUserId, role: UserRole.PATIENT } as AuthUser);
   }
 }

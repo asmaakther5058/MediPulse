@@ -5,11 +5,14 @@ import {
   ManyToOne,
   JoinColumn,
   CreateDateColumn,
+  Index,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity.js';
 
 @Entity('notifications')
+@Index('idx_notifications_recipient_read', ['recipient', 'isRead'])
 export class Notification {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -19,7 +22,7 @@ export class Notification {
     onDelete: 'CASCADE',
   })
   @JoinColumn({ name: 'recipient_user_id' })
-  recipient: User;
+  recipient: Relation<User>;
 
   @Column({ type: 'varchar', length: 150 })
   title: string;

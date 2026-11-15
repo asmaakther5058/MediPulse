@@ -7,7 +7,10 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
 
 import { DoctorAvailabilityService } from './doctor-availability.service.js';
 import { CreateDoctorAvailabilityDto } from './dto/create-doctor-availability.dto.js';
@@ -18,6 +21,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
 import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
 
+@ApiTags('Doctor schedule')
+@ApiBearerAuth()
 @Controller('doctor-availability')
 export class DoctorAvailabilityController {
   constructor(private readonly availabilityService: DoctorAvailabilityService) {}
@@ -32,8 +37,8 @@ export class DoctorAvailabilityController {
   // Doctor: own slots. Admin: all slots.
   @Roles(UserRole.DOCTOR, UserRole.ADMIN)
   @Get()
-  findAll(@CurrentUser() user: AuthUser) {
-    return this.availabilityService.findAll(user.id, user.role);
+  findAll(@CurrentUser() user: AuthUser, @Query() query: PaginationQueryDto) {
+    return this.availabilityService.findAll(user.id, user.role, query);
   }
 
   @Roles(UserRole.DOCTOR, UserRole.ADMIN)

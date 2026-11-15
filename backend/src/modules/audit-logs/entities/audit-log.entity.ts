@@ -6,6 +6,7 @@ import {
   JoinColumn,
   CreateDateColumn,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 
 import { User } from '../../users/entities/user.entity.js';
 
@@ -19,7 +20,7 @@ export class AuditLog {
     onDelete: 'SET NULL',
   })
   @JoinColumn({ name: 'actor_user_id' })
-  actor: User | null;
+  actor: Relation<User> | null;
 
   @Column({ type: 'varchar', length: 100 })
   action: string;
