@@ -1,5 +1,5 @@
 # Dependencies
-node_modules/
+node_modules
 
 # Environment files
 .env
@@ -22,3 +22,6 @@ coverage/
 Thumbs.db
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Uploaded reports and generated PDFs
+uploads/

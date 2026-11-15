@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
 } from '@nestjs/common';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { SpecializationsService } from './specializations.service.js';
 import { CreateSpecializationDto } from './dto/create-specialization.dto.js';
@@ -17,6 +18,8 @@ import { Public } from '../../common/decorators/public.decorator.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
 
+@ApiTags('Specializations')
+@ApiBearerAuth()
 @Controller('specializations')
 export class SpecializationsController {
   constructor(private readonly specializationsService: SpecializationsService) {}

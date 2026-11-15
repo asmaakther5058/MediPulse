@@ -1,55 +1,65 @@
-
-import {
-  Injectable,
-  NotFoundException,
-  ConflictException,
-} from '@nestjs/common';
-
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { ILike, Repository } from 'typeorm';
 
 import { DiagnosticTest } from './entities/diagnostic-test.entity.js';
 import { CreateDiagnosticTestDto } from './dto/create-diagnostic-test.dto.js';
 import { UpdateDiagnosticTestDto } from './dto/update-diagnostic-test.dto.js';
+import { DiagnosticTestQueryDto } from './dto/diagnostic-test-query.dto.js';
+import { paginate } from '../../common/dto/pagination-query.dto.js';
+import { isUniqueViolation } from '../../common/utils/safe-user.util.js';
 
+// The single diagnostic center's test catalog (spec 5B)
 @Injectable()
 export class DiagnosticTestsService {
   constructor(
     @InjectRepository(DiagnosticTest)
-    private readonly diagnosticTestRepository: Repository<DiagnosticTest>,
+    private readonly repo: Repository<DiagnosticTest>,
   ) {}
 
-  async create(createDto: CreateDiagnosticTestDto) {
-    const existingTest = await this.diagnosticTestRepository.findOne({
-      where: { testName: createDto.testName },
-    });
-
-    if (existingTest) {
-      throw new ConflictException('Diagnostic test already exists');
+  // Returns the row as stored, so prices come back as e.g. "2200.00"
+  private async save(test: DiagnosticTest) {
+    try {
+      const saved = await this.repo.save(test);
+      return await this.findOne(saved.id);
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ConflictException('A diagnostic test with this name already exists');
+      }
+      throw error;
     }
-
-    const test = this.diagnosticTestRepository.create(createDto);
-
-    return this.diagnosticTestRepository.save(test);
   }
 
-  async findAll() {
-    return this.diagnosticTestRepository.find({
-      order: { createdAt: 'DESC' },
-    });
+  create(dto: CreateDiagnosticTestDto) {
+    return this.save(this.repo.create({ ...dto, price: String(dto.price) }));
   }
 
-  async findActive() {
-    return this.diagnosticTestRepository.find({
-      where: { isActive: true },
+  private async list(query: DiagnosticTestQueryDto, activeOnly: boolean) {
+    const { page, limit } = query;
+    const [items, total] = await this.repo.findAndCount({
+      where: {
+        ...(activeOnly ? { isActive: true } : {}),
+        ...(query.search?.trim() ? { testName: ILike(`%${query.search.trim()}%`) } : {}),
+        ...(query.category ? { category: query.category } : {}),
+      },
       order: { testName: 'ASC' },
+      skip: (page - 1) * limit,
+      take: limit,
     });
+
+    return paginate(items, total, page, limit);
+  }
+
+  findAll(query: DiagnosticTestQueryDto) {
+    return this.list(query, false);
+  }
+
+  findActive(query: DiagnosticTestQueryDto) {
+    return this.list(query, true);
   }
 
   async findOne(id: string) {
-    const test = await this.diagnosticTestRepository.findOne({
-      where: { id },
-    });
+    const test = await this.repo.findOne({ where: { id } });
 
     if (!test) {
       throw new NotFoundException('Diagnostic test not found');
@@ -58,31 +68,29 @@ export class DiagnosticTestsService {
     return test;
   }
 
-  async update(id: string, updateDto: UpdateDiagnosticTestDto) {
+  async update(id: string, dto: UpdateDiagnosticTestDto) {
     const test = await this.findOne(id);
-
-    if (updateDto.testName && updateDto.testName !== test.testName) {
-      const existingTest = await this.diagnosticTestRepository.findOne({
-        where: { testName: updateDto.testName },
-      });
-
-      if (existingTest) {
-        throw new ConflictException('Diagnostic test name already exists');
-      }
-    }
-
-    Object.assign(test, updateDto);
-
-    return this.diagnosticTestRepository.save(test);
+    const { price, ...rest } = dto;
+    Object.assign(test, rest);
+    if (price !== undefined) test.price = String(price);
+    return this.save(test);
   }
 
   async remove(id: string) {
     const test = await this.findOne(id);
 
-    await this.diagnosticTestRepository.remove(test);
+    try {
+      await this.repo.remove(test);
+    } catch (error) {
+      if ((error as { code?: string }).code === '23503' ||
+          (error as { driverError?: { code?: string } }).driverError?.code === '23503') {
+        throw new ConflictException(
+          'This test has recommendations or bookings; set isActive to false instead of deleting it',
+        );
+      }
+      throw error;
+    }
 
-    return {
-      message: 'Diagnostic test deleted successfully',
-    };
+    return { message: 'Diagnostic test deleted successfully' };
   }
 }

@@ -8,21 +8,25 @@ import {
   UpdateDateColumn,
   Check,
   Index,
+  OneToMany,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { sqlIn } from '../../../common/utils/sql.util.js';
 
 import { Patient } from '../../patients/entities/patient.entity.js';
 import { Doctor } from '../../doctors/entities/doctor.entity.js';
+import { Payment } from '../../payments/entities/payment.entity.js';
 import { DoctorAvailability } from '../../doctor-availability/entities/doctor-availability.entity.js';
-import { AppointmentStatus } from '../../../common/enums/appointment-status.enum.js';
+import { AppointmentStatus, CancelledBy } from '../../../common/enums/appointment-status.enum.js';
 
 @Entity('appointments')
 @Check('chk_appointments_status', `"status" IN (${sqlIn(AppointmentStatus)})`)
 @Check('chk_appointments_fee', `"consultation_fee" >= 0`)
+@Check('chk_appointments_cancelled_by', `"cancelled_by" IS NULL OR "cancelled_by" IN (${sqlIn(CancelledBy)})`)
 // One live booking per slot per date (cancelled/rejected free the slot)
 @Index('uq_appointment_active_slot', ['availability', 'appointmentDate'], {
   unique: true,
-  where: `"status" NOT IN ('CANCELLED', 'REJECTED')`,
+  where: `"status" <> 'CANCELLED'`,
 })
 @Index('idx_appointments_patient', ['patient'])
 @Index('idx_appointments_doctor', ['doctor'])
@@ -32,15 +36,15 @@ export class Appointment {
 
   @ManyToOne(() => Patient, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'patient_id' })
-  patient: Patient;
+  patient: Relation<Patient>;
 
   @ManyToOne(() => Doctor, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'doctor_id' })
-  doctor: Doctor;
+  doctor: Relation<Doctor>;
 
   @ManyToOne(() => DoctorAvailability, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'availability_id' })
-  availability: DoctorAvailability;
+  availability: Relation<DoctorAvailability>;
 
   @Column({ name: 'appointment_date', type: 'date' })
   appointmentDate: string;
@@ -74,6 +78,13 @@ export class Appointment {
 
   @Column({ name: 'cancellation_reason', type: 'text', nullable: true })
   cancellationReason: string | null;
+
+  // Who cancelled: the patient, the doctor (a rejection) or the system (hold expired)
+  @Column({ name: 'cancelled_by', type: 'varchar', length: 20, nullable: true })
+  cancelledBy: CancelledBy | null;
+
+  @OneToMany(() => Payment, (payment) => payment.appointment)
+  payments: Relation<Payment[]>;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;

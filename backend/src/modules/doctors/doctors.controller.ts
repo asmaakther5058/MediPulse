@@ -16,6 +16,8 @@ import { UpdateDoctorDto } from './dto/update-doctor.dto.js';
 import { RegisterDoctorDto } from './dto/register-doctor.dto.js';
 import { VerifyDoctorDto } from './dto/verify-doctor.dto.js';
 import { DoctorQueryDto } from './dto/doctor-query.dto.js';
+import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { Public } from '../../common/decorators/public.decorator.js';
 import { Roles } from '../../common/decorators/roles.decorator.js';
@@ -23,6 +25,8 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
 import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
 
+@ApiTags('Doctors')
+@ApiBearerAuth()
 @Controller('doctors')
 export class DoctorsController {
   constructor(private readonly doctorsService: DoctorsService) {}
@@ -48,11 +52,25 @@ export class DoctorsController {
     return this.doctorsService.findMyProfile(user.id);
   }
 
+  // Doctor: overview counts, earnings, new requests
+  @Roles(UserRole.DOCTOR)
+  @Get('me/dashboard')
+  dashboard(@CurrentUser() user: AuthUser) {
+    return this.doctorsService.dashboard(user.id);
+  }
+
+  // Doctor: own patients (paid appointments only)
+  @Roles(UserRole.DOCTOR)
+  @Get('me/patients')
+  myPatients(@CurrentUser() user: AuthUser, @Query() query: PaginationQueryDto) {
+    return this.doctorsService.myPatients(user.id, query);
+  }
+
   // Admin: all doctors, any verification status
   @Roles(UserRole.ADMIN)
   @Get('admin/all')
-  findAllForAdmin() {
-    return this.doctorsService.findAllForAdmin();
+  findAllForAdmin(@Query() query: PaginationQueryDto) {
+    return this.doctorsService.findAllForAdmin(query);
   }
 
   // Admin: approve / reject

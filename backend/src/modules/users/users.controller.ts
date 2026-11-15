@@ -7,11 +7,15 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
 } from '@nestjs/common';
 
 import { UsersService } from './users.service.js';
 import { UpdateUserDto } from './dto/update-user.dto.js';
 import { AdminCreateUserDto } from './dto/admin-create-user.dto.js';
+import { UserQueryDto } from './dto/user-query.dto.js';
+import { ChangeRoleDto } from './dto/change-role.dto.js';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
@@ -19,6 +23,8 @@ import { UserRole } from '../../common/enums/user-role.enum.js';
 import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
 
 // Admin-only user management
+@ApiTags('Users (Admin)')
+@ApiBearerAuth()
 @Controller('users')
 @Roles(UserRole.ADMIN)
 export class UsersController {
@@ -29,9 +35,10 @@ export class UsersController {
     return this.usersService.createByAdmin(dto);
   }
 
+  // ?role=DOCTOR&isActive=true&search=rahman&page=1&limit=10
   @Get()
-  findAll() {
-    return this.usersService.findAll();
+  findAll(@Query() query: UserQueryDto) {
+    return this.usersService.findAll(query);
   }
 
   @Get(':id')
@@ -46,6 +53,15 @@ export class UsersController {
     @CurrentUser() user: AuthUser,
   ) {
     return this.usersService.update(id, dto, user.id);
+  }
+
+  @Patch(':id/role')
+  changeRole(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ChangeRoleDto,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.usersService.changeRole(id, dto, user.id);
   }
 
   @Delete(':id')

@@ -1,6 +1,9 @@
+// PENDING -> patient approves (APPROVED) or rejects (REJECTED)
+// APPROVED -> test paid -> BOOKED -> center completes -> COMPLETED
 export enum RecommendationStatus {
-  RECOMMENDED = 'RECOMMENDED',
+  PENDING = 'PENDING',
+  APPROVED = 'APPROVED',
+  REJECTED = 'REJECTED',
   BOOKED = 'BOOKED',
   COMPLETED = 'COMPLETED',
-  CANCELLED = 'CANCELLED',
 }

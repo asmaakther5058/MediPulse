@@ -1,6 +1,8 @@
  
 import {
   IsArray,
+  ArrayMinSize,
+  ArrayMaxSize,
   IsDateString,
   IsNotEmpty,
   IsOptional,
@@ -19,6 +21,7 @@ export class CreatePrescriptionDto {
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(2000)
   diagnosis: string;
 
   @IsOptional()
@@ -31,6 +34,8 @@ export class CreatePrescriptionDto {
   followUpDate?: string;
 
   @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(30)
   @ValidateNested({ each: true })
   @Type(() => PrescriptionMedicineDto)
   medicines: PrescriptionMedicineDto[];

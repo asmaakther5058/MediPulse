@@ -9,6 +9,7 @@ import {
   UpdateDateColumn,
   Check,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { sqlIn } from '../../../common/utils/sql.util.js';
 
 import { User } from '../../users/entities/user.entity.js';
@@ -25,11 +26,11 @@ export class Doctor {
 
   @OneToOne(() => User, { nullable: false, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
-  user: User;
+  user: Relation<User>;
 
   @ManyToOne(() => Specialization, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'specialization_id' })
-  specialization: Specialization;
+  specialization: Relation<Specialization>;
 
   @Column({ type: 'text' })
   qualifications: string;

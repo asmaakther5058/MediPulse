@@ -14,6 +14,7 @@ import { Patient } from '../patients/entities/patient.entity.js';
 import { RegisterDto } from './dto/register.dto.js';
 import { LoginDto } from './dto/login.dto.js';
 import { ChangePasswordDto } from './dto/change-password.dto.js';
+import { UpdateProfileDto } from './dto/update-profile.dto.js';
 
 import { UserRole } from '../../common/enums/user-role.enum.js';
 import { JwtPayload } from '../../common/interfaces/jwt-payload.interface.js';
@@ -130,6 +131,27 @@ export class AuthService {
       user: toSafeUser(user),
       patientProfile,
     };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.userRepository.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
+    }
+
+    if (dto.fullName !== undefined) user.fullName = dto.fullName;
+    if (dto.email !== undefined) user.email = dto.email.toLowerCase();
+    if (dto.phone !== undefined) user.phone = dto.phone;
+
+    try {
+      return { message: 'Profile updated', user: toSafeUser(await this.userRepository.save(user)) };
+    } catch (error) {
+      if (isUniqueViolation(error)) {
+        throw new ConflictException('Email or phone already in use');
+      }
+      throw error;
+    }
   }
 
   async changePassword(userId: string, dto: ChangePasswordDto) {

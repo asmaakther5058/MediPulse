@@ -16,6 +16,7 @@ import { SpecializationsModule } from './modules/specializations/specializations
 import { EarningsModule } from './modules/earnings/earnings.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module.js';
+import { AdminModule } from './modules/admin/admin.module.js';
 
 // One per side
 import { DoctorFeaturesModule } from './doctor-features.module.js';
@@ -37,6 +38,7 @@ import { PatientFeaturesModule } from './patient-features.module.js';
     EarningsModule,
     NotificationsModule,
     AuditLogsModule,
+    AdminModule,
 
     DoctorFeaturesModule,
     PatientFeaturesModule,

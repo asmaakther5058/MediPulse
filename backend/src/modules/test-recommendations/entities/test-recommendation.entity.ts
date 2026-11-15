@@ -11,6 +11,7 @@ import {
   Index,
   Unique,
 } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { sqlIn } from '../../../common/utils/sql.util.js';
 
 import { RecommendationStatus } from '../../../common/enums/recommendation-status.enum.js';
@@ -30,19 +31,19 @@ export class TestRecommendation {
 
   @ManyToOne(() => Patient, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'patient_id' })
-  patient: Patient;
+  patient: Relation<Patient>;
 
   @ManyToOne(() => Doctor, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'doctor_id' })
-  doctor: Doctor;
+  doctor: Relation<Doctor>;
 
   @ManyToOne(() => Appointment, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'appointment_id' })
-  appointment: Appointment;
+  appointment: Relation<Appointment>;
 
   @ManyToOne(() => DiagnosticTest, { nullable: false, onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'diagnostic_test_id' })
-  diagnosticTest: DiagnosticTest;
+  diagnosticTest: Relation<DiagnosticTest>;
 
   @Column({
     name: 'recommendation_note',
@@ -54,9 +55,16 @@ export class TestRecommendation {
   @Column({
     type: 'varchar',
     length: 20,
-    default: RecommendationStatus.RECOMMENDED,
+    default: RecommendationStatus.PENDING,
   })
   status: RecommendationStatus;
+
+  // Set when the patient approves or rejects
+  @Column({ name: 'responded_at', type: 'timestamptz', nullable: true })
+  respondedAt: Date | null;
+
+  @Column({ name: 'rejection_reason', type: 'text', nullable: true })
+  rejectionReason: string | null;
 
   @CreateDateColumn({
     name: 'created_at',
