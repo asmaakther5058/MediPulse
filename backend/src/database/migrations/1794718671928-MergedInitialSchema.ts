@@ -1,0 +1,120 @@
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class MergedInitialSchema1794718671928 implements MigrationInterface {
+    name = 'MergedInitialSchema1794718671928'
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`CREATE TABLE "users" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "full_name" character varying(150) NOT NULL, "email" character varying(150) NOT NULL, "phone" character varying(20), "password_hash" character varying(255) NOT NULL, "role" character varying(30) NOT NULL DEFAULT 'PATIENT', "profile_image_url" character varying(500), "is_active" boolean NOT NULL DEFAULT true, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "UQ_97672ac88f789774dd47f7c8be3" UNIQUE ("email"), CONSTRAINT "UQ_a000cca60bcf04454e727699490" UNIQUE ("phone"), CONSTRAINT "chk_users_role" CHECK ("role" IN ('PATIENT', 'DOCTOR', 'DIAGNOSTIC_CENTER', 'ADMIN')), CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "patient_profiles" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "patient_code" character varying(30) NOT NULL, "date_of_birth" date, "gender" character varying(20), "blood_group" character varying(5), "address" text, "emergency_contact" character varying(20), "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "user_id" uuid NOT NULL, CONSTRAINT "UQ_dab8b800c515676387f7d15a216" UNIQUE ("patient_code"), CONSTRAINT "REL_e296010b9088277148d109ba75" UNIQUE ("user_id"), CONSTRAINT "chk_patient_blood_group" CHECK ("blood_group" IS NULL OR "blood_group" IN ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-')), CONSTRAINT "chk_patient_gender" CHECK ("gender" IS NULL OR "gender" IN ('MALE', 'FEMALE', 'OTHER')), CONSTRAINT "PK_7297a6976f065cc75e798674aa8" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "specializations" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "name" character varying(100) NOT NULL, "description" text, "is_active" boolean NOT NULL DEFAULT true, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "UQ_68ccfdea9eca4570f9aa5454b25" UNIQUE ("name"), CONSTRAINT "PK_1d4b2b9ff96a76def0bf7195a8f" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "doctor_profiles" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "qualifications" text NOT NULL, "experience_years" integer NOT NULL DEFAULT '0', "consultation_fee" numeric(10,2) NOT NULL, "professional_info" text, "verification_status" character varying(20) NOT NULL DEFAULT 'PENDING', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "user_id" uuid NOT NULL, "specialization_id" uuid NOT NULL, CONSTRAINT "REL_69995f9059305ab7a9c52cdb10" UNIQUE ("user_id"), CONSTRAINT "chk_doctor_verification_status" CHECK ("verification_status" IN ('PENDING', 'APPROVED', 'REJECTED')), CONSTRAINT "chk_doctor_fee" CHECK ("consultation_fee" >= 0), CONSTRAINT "chk_doctor_experience" CHECK ("experience_years" >= 0), CONSTRAINT "PK_b07c128005f6a0d0135d6e7353b" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "doctor_availabilities" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "day_of_week" character varying(10) NOT NULL, "start_time" TIME NOT NULL, "end_time" TIME NOT NULL, "is_available" boolean NOT NULL DEFAULT true, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "doctor_id" uuid NOT NULL, CONSTRAINT "uq_doctor_day_start" UNIQUE ("doctor_id", "day_of_week", "start_time"), CONSTRAINT "chk_doctor_availability_time" CHECK ("start_time" >= TIME '10:00' AND "end_time" <= TIME '22:00' AND "end_time" = "start_time" + INTERVAL '20 minutes' AND MOD(EXTRACT(EPOCH FROM ("start_time" - TIME '10:00'))::INTEGER, 1200) = 0), CONSTRAINT "chk_doctor_availability_day" CHECK ("day_of_week" IN ('SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY')), CONSTRAINT "PK_2a42931ed0fe3c6934b737c503a" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "appointments" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "appointment_date" date NOT NULL, "start_time" TIME NOT NULL, "end_time" TIME NOT NULL, "consultation_fee" numeric(10,2) NOT NULL, "status" character varying(20) NOT NULL DEFAULT 'PENDING_PAYMENT', "hold_expires_at" TIMESTAMP WITH TIME ZONE, "patient_note" text, "rejection_reason" text, "cancellation_reason" text, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "patient_id" uuid NOT NULL, "doctor_id" uuid NOT NULL, "availability_id" uuid NOT NULL, CONSTRAINT "chk_appointments_fee" CHECK ("consultation_fee" >= 0), CONSTRAINT "chk_appointments_status" CHECK ("status" IN ('PENDING_PAYMENT', 'PENDING_DOCTOR', 'ACCEPTED', 'REJECTED', 'CANCELLED', 'COMPLETED')), CONSTRAINT "PK_4a437a9a27e948726b8bb3e36ad" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "idx_appointments_doctor" ON "appointments"  ("doctor_id") `);
+        await queryRunner.query(`CREATE INDEX "idx_appointments_patient" ON "appointments"  ("patient_id") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "uq_appointment_active_slot" ON "appointments"  ("availability_id", "appointment_date") WHERE "status" NOT IN ('CANCELLED', 'REJECTED')`);
+        await queryRunner.query(`CREATE TABLE "audit_logs" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "action" character varying(100) NOT NULL, "entity_name" character varying(100) NOT NULL, "entity_id" uuid, "old_values" jsonb, "new_values" jsonb, "ip_address" inet, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "actor_user_id" uuid, CONSTRAINT "PK_1bb179d048bbc581caa3b013439" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "diagnostic_center_profiles" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "center_name" character varying(150) NOT NULL, "license_number" character varying(100) NOT NULL, "address" text NOT NULL, "city" character varying(100) NOT NULL, "area" character varying(100), "contact_number" character varying(20) NOT NULL, "description" text, "verification_status" character varying(20) NOT NULL DEFAULT 'PENDING', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "user_id" uuid NOT NULL, CONSTRAINT "UQ_8b99dfb70d686efaf4b6f837f6a" UNIQUE ("license_number"), CONSTRAINT "REL_f3b9f9e20b55ad28d336ef81f4" UNIQUE ("user_id"), CONSTRAINT "chk_diagnostic_center_verification" CHECK ("verification_status" IN ('PENDING', 'APPROVED', 'REJECTED')), CONSTRAINT "PK_5cdeca4a0e7dbfd4d76b71c8448" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "diagnostic_tests" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "test_name" character varying(150) NOT NULL, "category" character varying(100) NOT NULL, "description" text, "sample_type" character varying(100), "preparation_instructions" text, "is_active" boolean NOT NULL DEFAULT true, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), CONSTRAINT "UQ_c9babbb198b68f970c41dcad3e2" UNIQUE ("test_name"), CONSTRAINT "PK_dcf7e761d09a27870664dcc21dd" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "idx_diagnostic_tests_category" ON "diagnostic_tests"  ("category") `);
+        await queryRunner.query(`CREATE TABLE "test_recommendations" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "recommendation_note" text, "status" character varying(20) NOT NULL DEFAULT 'RECOMMENDED', "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "patient_id" uuid NOT NULL, "doctor_id" uuid NOT NULL, "appointment_id" uuid NOT NULL, "diagnostic_test_id" uuid NOT NULL, CONSTRAINT "uq_appointment_diagnostic_test" UNIQUE ("appointment_id", "diagnostic_test_id"), CONSTRAINT "chk_recommendation_status" CHECK ("status" IN ('RECOMMENDED', 'BOOKED', 'COMPLETED', 'CANCELLED')), CONSTRAINT "PK_f1fc54794fa67db021b8d024a26" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "idx_recommendations_doctor" ON "test_recommendations"  ("doctor_id") `);
+        await queryRunner.query(`CREATE INDEX "idx_recommendations_patient" ON "test_recommendations"  ("patient_id") `);
+        await queryRunner.query(`CREATE TABLE "diagnostic_bookings" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "booking_date" date NOT NULL, "booking_time" TIME, "status" character varying(20) NOT NULL DEFAULT 'PENDING', "patient_note" text, "center_note" text, "cancellation_reason" text, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "patient_id" uuid NOT NULL, "diagnostic_center_id" uuid NOT NULL, "recommendation_id" uuid NOT NULL, CONSTRAINT "chk_booking_status" CHECK ("status" IN ('PENDING', 'ACCEPTED', 'REJECTED', 'COMPLETED', 'CANCELLED')), CONSTRAINT "PK_f05f04fe085c39b696cdb4a3ede" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "idx_bookings_center" ON "diagnostic_bookings"  ("diagnostic_center_id") `);
+        await queryRunner.query(`CREATE INDEX "idx_bookings_patient" ON "diagnostic_bookings"  ("patient_id") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "uq_booking_active_recommendation" ON "diagnostic_bookings"  ("recommendation_id") WHERE "status" NOT IN ('CANCELLED', 'REJECTED')`);
+        await queryRunner.query(`CREATE TABLE "payments" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "amount" numeric(10,2) NOT NULL, "currency" character varying(10) NOT NULL DEFAULT 'BDT', "status" character varying(20) NOT NULL DEFAULT 'PENDING', "payment_method" character varying(50), "transaction_id" character varying(150), "paid_at" TIMESTAMP WITH TIME ZONE, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "appointment_id" uuid NOT NULL, CONSTRAINT "UQ_3c324ca49dabde7ffc0ef64675d" UNIQUE ("transaction_id"), CONSTRAINT "chk_payments_amount" CHECK ("amount" >= 0), CONSTRAINT "chk_payments_status" CHECK ("status" IN ('PENDING', 'PAID', 'FAILED', 'REFUNDED')), CONSTRAINT "PK_197ab7af18c93fbb0c9b28b4a59" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "idx_payments_appointment" ON "payments"  ("appointment_id") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "uq_payments_active_per_appointment" ON "payments"  ("appointment_id") WHERE "status" IN ('PENDING', 'PAID')`);
+        await queryRunner.query(`CREATE TABLE "earnings" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "beneficiary_role" character varying(20) NOT NULL, "amount" numeric(10,2) NOT NULL, "share_percentage" numeric(5,2) NOT NULL, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "payment_id" uuid NOT NULL, "beneficiary_user_id" uuid NOT NULL, CONSTRAINT "UQ_54ff75140e583ab8c307119a7c3" UNIQUE ("payment_id", "beneficiary_role"), CONSTRAINT "chk_earnings_role" CHECK ("beneficiary_role" IN ('DOCTOR', 'ADMIN')), CONSTRAINT "PK_32821f77c2546a1d53f674fe83f" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "notifications" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "title" character varying(150) NOT NULL, "message" text NOT NULL, "notification_type" character varying(50) NOT NULL, "related_entity_type" character varying(50), "related_entity_id" uuid, "is_read" boolean NOT NULL DEFAULT false, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "recipient_user_id" uuid NOT NULL, CONSTRAINT "PK_6a72c3c0f683f6462415e653c3a" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "prescriptions" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "diagnosis" text NOT NULL, "advice" text, "follow_up_date" date, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "appointment_id" uuid NOT NULL, "patient_id" uuid NOT NULL, "doctor_id" uuid NOT NULL, CONSTRAINT "REL_94491da15bc982f3435690fc96" UNIQUE ("appointment_id"), CONSTRAINT "PK_097b2cc2f2b7e56825468188503" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "idx_prescriptions_doctor" ON "prescriptions"  ("doctor_id") `);
+        await queryRunner.query(`CREATE INDEX "idx_prescriptions_patient" ON "prescriptions"  ("patient_id") `);
+        await queryRunner.query(`CREATE TABLE "prescription_medicines" ("id" uuid NOT NULL DEFAULT gen_random_uuid(), "medicine_name" character varying(150) NOT NULL, "dosage" character varying(100) NOT NULL, "frequency" character varying(100) NOT NULL, "duration" character varying(100) NOT NULL, "instructions" text, "created_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "updated_at" TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(), "prescription_id" uuid NOT NULL, CONSTRAINT "PK_a3aa7e0b9a01f51047385ead5ee" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "idx_prescription_medicines_prescription" ON "prescription_medicines"  ("prescription_id") `);
+        await queryRunner.query(`ALTER TABLE "patient_profiles" ADD CONSTRAINT "FK_e296010b9088277148d109ba75a" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "doctor_profiles" ADD CONSTRAINT "FK_69995f9059305ab7a9c52cdb10e" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "doctor_profiles" ADD CONSTRAINT "FK_008838d4e3b3e4ae76912407aa9" FOREIGN KEY ("specialization_id") REFERENCES "specializations"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "doctor_availabilities" ADD CONSTRAINT "FK_aa49ce7b9ff575a2963abcb6910" FOREIGN KEY ("doctor_id") REFERENCES "doctor_profiles"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "appointments" ADD CONSTRAINT "FK_3330f054416745deaa2cc130700" FOREIGN KEY ("patient_id") REFERENCES "patient_profiles"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "appointments" ADD CONSTRAINT "FK_4cf26c3f972d014df5c68d503d2" FOREIGN KEY ("doctor_id") REFERENCES "doctor_profiles"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "appointments" ADD CONSTRAINT "FK_e893bbc4b32e207367bcdbee9d3" FOREIGN KEY ("availability_id") REFERENCES "doctor_availabilities"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "audit_logs" ADD CONSTRAINT "FK_f160d97a931844109de9d04228f" FOREIGN KEY ("actor_user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "diagnostic_center_profiles" ADD CONSTRAINT "FK_f3b9f9e20b55ad28d336ef81f41" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "test_recommendations" ADD CONSTRAINT "FK_8d88e71138af5b7da8b0f499a84" FOREIGN KEY ("patient_id") REFERENCES "patient_profiles"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "test_recommendations" ADD CONSTRAINT "FK_f15e306e70586789f6dcb3c4cd4" FOREIGN KEY ("doctor_id") REFERENCES "doctor_profiles"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "test_recommendations" ADD CONSTRAINT "FK_81deb2e878c6d27a90ff024d9e6" FOREIGN KEY ("appointment_id") REFERENCES "appointments"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "test_recommendations" ADD CONSTRAINT "FK_bac8cebeb24cca480d9c1cd27f4" FOREIGN KEY ("diagnostic_test_id") REFERENCES "diagnostic_tests"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "diagnostic_bookings" ADD CONSTRAINT "FK_0cdb9745cd9ed8e47aacb4117ea" FOREIGN KEY ("patient_id") REFERENCES "patient_profiles"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "diagnostic_bookings" ADD CONSTRAINT "FK_4070e613a985d9a68b43aa63528" FOREIGN KEY ("diagnostic_center_id") REFERENCES "diagnostic_center_profiles"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "diagnostic_bookings" ADD CONSTRAINT "FK_6b6055a84d2bfccd17c22cfff78" FOREIGN KEY ("recommendation_id") REFERENCES "test_recommendations"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "payments" ADD CONSTRAINT "FK_9f49987820da519f855d04c82bd" FOREIGN KEY ("appointment_id") REFERENCES "appointments"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "earnings" ADD CONSTRAINT "FK_5f1eb8dd7699a36268ae226b1e1" FOREIGN KEY ("payment_id") REFERENCES "payments"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "earnings" ADD CONSTRAINT "FK_4fa9fb436ad0a947bd2a6df77ee" FOREIGN KEY ("beneficiary_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "notifications" ADD CONSTRAINT "FK_2726bde496d82b6401532ab1477" FOREIGN KEY ("recipient_user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "prescriptions" ADD CONSTRAINT "FK_94491da15bc982f3435690fc96e" FOREIGN KEY ("appointment_id") REFERENCES "appointments"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "prescriptions" ADD CONSTRAINT "FK_9389db557647131856661f7d7b5" FOREIGN KEY ("patient_id") REFERENCES "patient_profiles"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "prescriptions" ADD CONSTRAINT "FK_2d6a1941bd705056030c2b9e07d" FOREIGN KEY ("doctor_id") REFERENCES "doctor_profiles"("id") ON DELETE RESTRICT ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "prescription_medicines" ADD CONSTRAINT "FK_ec23f4d56cf520bda640dfb8bf1" FOREIGN KEY ("prescription_id") REFERENCES "prescriptions"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`ALTER TABLE "prescription_medicines" DROP CONSTRAINT "FK_ec23f4d56cf520bda640dfb8bf1"`);
+        await queryRunner.query(`ALTER TABLE "prescriptions" DROP CONSTRAINT "FK_2d6a1941bd705056030c2b9e07d"`);
+        await queryRunner.query(`ALTER TABLE "prescriptions" DROP CONSTRAINT "FK_9389db557647131856661f7d7b5"`);
+        await queryRunner.query(`ALTER TABLE "prescriptions" DROP CONSTRAINT "FK_94491da15bc982f3435690fc96e"`);
+        await queryRunner.query(`ALTER TABLE "notifications" DROP CONSTRAINT "FK_2726bde496d82b6401532ab1477"`);
+        await queryRunner.query(`ALTER TABLE "earnings" DROP CONSTRAINT "FK_4fa9fb436ad0a947bd2a6df77ee"`);
+        await queryRunner.query(`ALTER TABLE "earnings" DROP CONSTRAINT "FK_5f1eb8dd7699a36268ae226b1e1"`);
+        await queryRunner.query(`ALTER TABLE "payments" DROP CONSTRAINT "FK_9f49987820da519f855d04c82bd"`);
+        await queryRunner.query(`ALTER TABLE "diagnostic_bookings" DROP CONSTRAINT "FK_6b6055a84d2bfccd17c22cfff78"`);
+        await queryRunner.query(`ALTER TABLE "diagnostic_bookings" DROP CONSTRAINT "FK_4070e613a985d9a68b43aa63528"`);
+        await queryRunner.query(`ALTER TABLE "diagnostic_bookings" DROP CONSTRAINT "FK_0cdb9745cd9ed8e47aacb4117ea"`);
+        await queryRunner.query(`ALTER TABLE "test_recommendations" DROP CONSTRAINT "FK_bac8cebeb24cca480d9c1cd27f4"`);
+        await queryRunner.query(`ALTER TABLE "test_recommendations" DROP CONSTRAINT "FK_81deb2e878c6d27a90ff024d9e6"`);
+        await queryRunner.query(`ALTER TABLE "test_recommendations" DROP CONSTRAINT "FK_f15e306e70586789f6dcb3c4cd4"`);
+        await queryRunner.query(`ALTER TABLE "test_recommendations" DROP CONSTRAINT "FK_8d88e71138af5b7da8b0f499a84"`);
+        await queryRunner.query(`ALTER TABLE "diagnostic_center_profiles" DROP CONSTRAINT "FK_f3b9f9e20b55ad28d336ef81f41"`);
+        await queryRunner.query(`ALTER TABLE "audit_logs" DROP CONSTRAINT "FK_f160d97a931844109de9d04228f"`);
+        await queryRunner.query(`ALTER TABLE "appointments" DROP CONSTRAINT "FK_e893bbc4b32e207367bcdbee9d3"`);
+        await queryRunner.query(`ALTER TABLE "appointments" DROP CONSTRAINT "FK_4cf26c3f972d014df5c68d503d2"`);
+        await queryRunner.query(`ALTER TABLE "appointments" DROP CONSTRAINT "FK_3330f054416745deaa2cc130700"`);
+        await queryRunner.query(`ALTER TABLE "doctor_availabilities" DROP CONSTRAINT "FK_aa49ce7b9ff575a2963abcb6910"`);
+        await queryRunner.query(`ALTER TABLE "doctor_profiles" DROP CONSTRAINT "FK_008838d4e3b3e4ae76912407aa9"`);
+        await queryRunner.query(`ALTER TABLE "doctor_profiles" DROP CONSTRAINT "FK_69995f9059305ab7a9c52cdb10e"`);
+        await queryRunner.query(`ALTER TABLE "patient_profiles" DROP CONSTRAINT "FK_e296010b9088277148d109ba75a"`);
+        await queryRunner.query(`DROP INDEX "public"."idx_prescription_medicines_prescription"`);
+        await queryRunner.query(`DROP TABLE "prescription_medicines"`);
+        await queryRunner.query(`DROP INDEX "public"."idx_prescriptions_patient"`);
+        await queryRunner.query(`DROP INDEX "public"."idx_prescriptions_doctor"`);
+        await queryRunner.query(`DROP TABLE "prescriptions"`);
+        await queryRunner.query(`DROP TABLE "notifications"`);
+        await queryRunner.query(`DROP TABLE "earnings"`);
+        await queryRunner.query(`DROP INDEX "public"."uq_payments_active_per_appointment"`);
+        await queryRunner.query(`DROP INDEX "public"."idx_payments_appointment"`);
+        await queryRunner.query(`DROP TABLE "payments"`);
+        await queryRunner.query(`DROP INDEX "public"."uq_booking_active_recommendation"`);
+        await queryRunner.query(`DROP INDEX "public"."idx_bookings_patient"`);
+        await queryRunner.query(`DROP INDEX "public"."idx_bookings_center"`);
+        await queryRunner.query(`DROP TABLE "diagnostic_bookings"`);
+        await queryRunner.query(`DROP INDEX "public"."idx_recommendations_patient"`);
+        await queryRunner.query(`DROP INDEX "public"."idx_recommendations_doctor"`);
+        await queryRunner.query(`DROP TABLE "test_recommendations"`);
+        await queryRunner.query(`DROP INDEX "public"."idx_diagnostic_tests_category"`);
+        await queryRunner.query(`DROP TABLE "diagnostic_tests"`);
+        await queryRunner.query(`DROP TABLE "diagnostic_center_profiles"`);
+        await queryRunner.query(`DROP TABLE "audit_logs"`);
+        await queryRunner.query(`DROP INDEX "public"."uq_appointment_active_slot"`);
+        await queryRunner.query(`DROP INDEX "public"."idx_appointments_patient"`);
+        await queryRunner.query(`DROP INDEX "public"."idx_appointments_doctor"`);
+        await queryRunner.query(`DROP TABLE "appointments"`);
+        await queryRunner.query(`DROP TABLE "doctor_availabilities"`);
+        await queryRunner.query(`DROP TABLE "doctor_profiles"`);
+        await queryRunner.query(`DROP TABLE "specializations"`);
+        await queryRunner.query(`DROP TABLE "patient_profiles"`);
+        await queryRunner.query(`DROP TABLE "users"`);
+    }
+
+}
