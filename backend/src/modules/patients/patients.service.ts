@@ -284,11 +284,9 @@ export class PatientsService {
       throw new ForbiddenException('You are not allowed to access this medical history');
     }
 
-    // Doctors see bookings/reports only for tests they recommended
-    const bookingWhere =
-      role === UserRole.DOCTOR
-        ? { patient: { id: patientId }, recommendation: { doctor: { user: { id: requesterId } } } }
-        : { patient: { id: patientId } };
+    // Test bookings and reports: every one of this patient's, for the patient,
+    // an admin, or a doctor already checked above to be treating them (spec 4F)
+    const bookingWhere = { patient: { id: patientId } };
 
     const [appointments, prescriptions, bookings, reports] = await Promise.all([
       this.appointmentRepository.find({
