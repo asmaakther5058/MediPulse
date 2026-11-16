@@ -18,6 +18,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { MailModule } from './modules/mail/mail.module.js';
+import { validateEnv } from './config/env.validation.js';
 
 // One per side
 import { DoctorFeaturesModule } from './doctor-features.module.js';
@@ -25,7 +26,8 @@ import { PatientFeaturesModule } from './patient-features.module.js';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
+    // Refuses to start if a required .env setting is missing or invalid
+    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env', validate: validateEnv }),
 
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
