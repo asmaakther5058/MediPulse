@@ -22,7 +22,7 @@ import {
 } from '../../common/enums/appointment-status.enum.js';
 import { NotificationType } from '../../common/enums/notification-type.enum.js';
 import { NotificationsService } from '../notifications/notifications.service.js';
-import { appointmentStatusFilter } from '../../common/utils/appointment-filter.util.js';
+import { appointmentOrder, appointmentStatusFilter } from '../../common/utils/appointment-filter.util.js';
 import { VerificationStatus } from '../../common/enums/verification-status.enum.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
 import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
@@ -173,7 +173,7 @@ export class AppointmentsService {
     const [items, total] = await this.dataSource.getRepository(Appointment).findAndCount({
       where: { ...where, ...appointmentStatusFilter(query) },
       relations: APPOINTMENT_RELATIONS,
-      order: { appointmentDate: 'DESC', startTime: 'DESC' },
+      order: appointmentOrder(query),
       skip: (page - 1) * limit,
       take: limit,
     });
