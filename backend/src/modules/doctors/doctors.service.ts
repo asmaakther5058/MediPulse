@@ -308,9 +308,10 @@ export class DoctorsService {
       .addSelect('pu.full_name', 'fullName')
       .addSelect('pu.phone', 'phone')
       .addSelect('p.gender', 'gender')
-      .addSelect('p.date_of_birth', 'dateOfBirth')
+      // ::text keeps plain YYYY-MM-DD (a raw DATE becomes a time-zone-shifted timestamp)
+      .addSelect('p.date_of_birth::text', 'dateOfBirth')
       .addSelect('COUNT(a.id)', 'appointments')
-      .addSelect('MAX(a.appointment_date)', 'lastAppointmentDate')
+      .addSelect('MAX(a.appointment_date)::text', 'lastAppointmentDate')
       .groupBy('p.id')
       .addGroupBy('pu.id');
 
