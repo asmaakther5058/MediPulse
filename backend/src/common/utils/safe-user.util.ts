@@ -1,5 +1,10 @@
 import { User } from '../../modules/users/entities/user.entity.js';
 
+// Link to a user's photo (the stored file path is never exposed)
+export function profilePhotoUrl(user: Pick<User, 'id' | 'profileImageUrl'>): string | null {
+  return user.profileImageUrl ? `/users/${user.id}/photo` : null;
+}
+
 // Public view of a user: never includes passwordHash
 export function toSafeUser(user: User) {
   return {
@@ -8,7 +13,7 @@ export function toSafeUser(user: User) {
     email: user.email,
     phone: user.phone,
     role: user.role,
-    profileImageUrl: user.profileImageUrl,
+    profileImageUrl: profilePhotoUrl(user),
     isActive: user.isActive,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,

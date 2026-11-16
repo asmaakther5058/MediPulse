@@ -21,7 +21,7 @@ import { DoctorQueryDto } from './dto/doctor-query.dto.js';
 import { UserRole } from '../../common/enums/user-role.enum.js';
 import { VerificationStatus } from '../../common/enums/verification-status.enum.js';
 import { hashPassword } from '../../common/utils/password.util.js';
-import { isUniqueViolation, toSafeUser } from '../../common/utils/safe-user.util.js';
+import { isUniqueViolation, profilePhotoUrl, toSafeUser } from '../../common/utils/safe-user.util.js';
 import { PaginationQueryDto, paginate } from '../../common/dto/pagination-query.dto.js';
 import { Appointment } from '../appointments/entities/appointment.entity.js';
 import { Earning } from '../earnings/entities/earning.entity.js';
@@ -64,7 +64,7 @@ export class DoctorsService {
             fullName: doctor.user.fullName,
             email: doctor.user.email,
             phone: doctor.user.phone,
-            profileImageUrl: doctor.user.profileImageUrl,
+            profileImageUrl: profilePhotoUrl(doctor.user),
           }
         : undefined,
       specialization: doctor.specialization
