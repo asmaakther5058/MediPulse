@@ -13,7 +13,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 import { AppointmentStatus, CancelledBy } from '../../common/enums/appointment-status.enum.js';
 import { NotificationType } from '../../common/enums/notification-type.enum.js';
 import { paginate } from '../../common/dto/pagination-query.dto.js';
-import { appointmentStatusFilter } from '../../common/utils/appointment-filter.util.js';
+import { appointmentOrder, appointmentStatusFilter } from '../../common/utils/appointment-filter.util.js';
 import {
   APPOINTMENT_RELATIONS,
   expireStaleHolds,
@@ -55,7 +55,7 @@ export class DoctorAppointmentsService {
         ...appointmentStatusFilter(query),
       },
       relations: APPOINTMENT_RELATIONS,
-      order: { appointmentDate: 'DESC', startTime: 'DESC' },
+      order: appointmentOrder(query),
       skip: (page - 1) * limit,
       take: limit,
     });
