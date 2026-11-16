@@ -16,6 +16,7 @@ import { NotificationsService } from '../notifications/notifications.service.js'
 
 import { CompleteTestDto } from './dto/complete-test.dto.js';
 import { UpdateReportDto } from './dto/update-report.dto.js';
+import { DoctorReportsQueryDto } from './dto/doctor-reports-query.dto.js';
 
 import { DiagnosticBookingStatus } from '../../common/enums/diagnostic-booking-status.enum.js';
 import { RecommendationStatus } from '../../common/enums/recommendation-status.enum.js';
@@ -40,6 +41,13 @@ export interface UploadedReportFile {
   originalname: string;
   size: number;
 }
+
+// A doctor's "own patient": at least one paid appointment with them
+const OWN_PATIENT_STATUSES = [
+  AppointmentStatus.PENDING_DOCTOR,
+  AppointmentStatus.ACCEPTED,
+  AppointmentStatus.COMPLETED,
+];
 
 const RELATIONS = {
   booking: {
@@ -225,7 +233,7 @@ export class DiagnosticReportsService {
         where: {
           patient: { id: r.booking.patient.id },
           doctor: { user: { id: user.id } },
-          status: In([AppointmentStatus.PENDING_DOCTOR, AppointmentStatus.ACCEPTED, AppointmentStatus.COMPLETED]),
+          status: In(OWN_PATIENT_STATUSES),
         },
       });
     }
@@ -280,6 +288,29 @@ export class DiagnosticReportsService {
 
   findAll(query: PaginationQueryDto) {
     return this.list({}, query);
+  }
+
+  // Doctor: reports of their own patients only (spec 4F)
+  async findForDoctor(doctorUserId: string, query: DoctorReportsQueryDto) {
+    const rows = await this.dataSource
+      .getRepository(Appointment)
+      .createQueryBuilder('a')
+      .innerJoin('a.doctor', 'd')
+      .select('DISTINCT a.patient_id', 'patientId')
+      .where('d.user_id = :doctorUserId', { doctorUserId })
+      .andWhere('a.status IN (:...statuses)', { statuses: OWN_PATIENT_STATUSES })
+      .getRawMany<{ patientId: string }>();
+
+    let patientIds = rows.map((r) => r.patientId);
+    if (query.patientId) {
+      // Not one of this doctor's patients: same empty answer, nothing leaked
+      patientIds = patientIds.includes(query.patientId) ? [query.patientId] : [];
+    }
+    if (!patientIds.length) {
+      return paginate([], 0, query.page, query.limit);
+    }
+
+    return this.list({ booking: { patient: { id: In(patientIds) } } }, query);
   }
 
   // Center: correct findings or replace the file

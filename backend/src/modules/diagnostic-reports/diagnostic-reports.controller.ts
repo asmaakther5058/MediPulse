@@ -17,6 +17,7 @@ import { ApiBearerAuth, ApiBody, ApiConsumes, ApiTags } from '@nestjs/swagger';
 import { DiagnosticReportsService, type UploadedReportFile } from './diagnostic-reports.service.js';
 import { CompleteTestDto } from './dto/complete-test.dto.js';
 import { UpdateReportDto } from './dto/update-report.dto.js';
+import { DoctorReportsQueryDto } from './dto/doctor-reports-query.dto.js';
 
 import { Roles } from '../../common/decorators/roles.decorator.js';
 import { CurrentUser } from '../../common/decorators/current-user.decorator.js';
@@ -77,6 +78,13 @@ export class DiagnosticReportsController {
   @Roles(UserRole.DIAGNOSTIC_CENTER, UserRole.ADMIN)
   findAll(@Query() query: PaginationQueryDto) {
     return this.service.findAll(query);
+  }
+
+  // Doctor: reports of own patients (paid appointment with this doctor); ?patientId= to narrow
+  @Get('doctor/my')
+  @Roles(UserRole.DOCTOR)
+  findForDoctor(@CurrentUser() user: AuthUser, @Query() query: DoctorReportsQueryDto) {
+    return this.service.findForDoctor(user.id, query);
   }
 
   @Get(':id')
