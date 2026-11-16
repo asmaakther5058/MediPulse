@@ -20,7 +20,12 @@ export const AUDITED_ROUTES: Record<string, string> = {
 };
 
 // Requests that change nothing worth auditing (or would only add noise)
-export const SKIPPED_ROUTES = new Set(['/auth/login']);
+export const SKIPPED_ROUTES = new Set([
+  '/auth/login',
+  // Logged by PasswordResetService itself (no token or password in the log)
+  '/auth/forgot-password',
+  '/auth/reset-password',
+]);
 
 // Never written to the audit log, whatever the entity
 export const SECRET_KEYS = new Set([
@@ -30,6 +35,8 @@ export const SECRET_KEYS = new Set([
   'newPassword',
   'confirmPassword',
   'accessToken',
+  'token',
+  'tokenHash',
   'pdfPath',
   'filePath',
 ]);

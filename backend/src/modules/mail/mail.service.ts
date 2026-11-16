@@ -152,6 +152,35 @@ export class MailService {
     });
   }
 
+  // Forgot password: one-time link. Without SMTP settings (local testing)
+  // the link is printed to the server log so the flow can still be tried.
+  sendPasswordReset(userId: string, resetLink: string, token: string, minutes: number): void {
+    void this.run('password reset', async () => {
+      const user = await this.dataSource.getRepository(User).findOneByOrFail({ id: userId });
+      await this.send(user.email, 'Reset your MediPulse password', 'password-reset', {
+        name: user.fullName,
+        resetLink,
+        token,
+        minutes,
+      });
+      if (!this.config.get<string>('MAIL_HOST') && this.config.get<string>('NODE_ENV') !== 'production') {
+        this.logger.warn(`Password reset link for ${user.email}: ${resetLink}`);
+      }
+    });
+  }
+
+  // Security notice after a password change or reset
+  sendPasswordChanged(userId: string): void {
+    void this.run('password changed', async () => {
+      const user = await this.dataSource.getRepository(User).findOneByOrFail({ id: userId });
+      await this.send(user.email, 'Your MediPulse password was changed', 'password-changed', {
+        name: user.fullName,
+        email: user.email,
+        changedAt: this.dateTime(user.passwordChangedAt ?? new Date()),
+      });
+    });
+  }
+
   private async send(
     to: string,
     subject: string,
