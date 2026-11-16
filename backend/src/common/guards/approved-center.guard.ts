@@ -14,6 +14,7 @@ const ALLOWED_BEFORE_APPROVAL = [
   /^\/notifications(\/|$)/,
   /^GET \/diagnostic-centers\/me$/,
   /^PATCH \/diagnostic-centers\/:id$/,
+  /^GET \/users\/:id\/photo$/,
 ];
 
 // Registered after JwtAuthGuard and RolesGuard (auth.module.ts), so the user
