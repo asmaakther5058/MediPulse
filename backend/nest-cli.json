@@ -12,6 +12,12 @@
           "classValidatorShim": true
         }
       }
+    ],
+    "assets": [
+      {
+        "include": "modules/mail/templates/**/*.hbs",
+        "watchAssets": true
+      }
     ]
   }
 }

@@ -18,6 +18,7 @@ import { Patient } from '../patients/entities/patient.entity.js';
 import { Doctor } from '../doctors/entities/doctor.entity.js';
 import { DiagnosticCenter } from '../diagnostic-centers/entities/diagnostic-center.entity.js';
 import { isUniqueViolation, toSafeUser } from '../../common/utils/safe-user.util.js';
+import { MailService } from '../mail/mail.service.js';
 
 @Injectable()
 export class UsersService {
@@ -26,6 +27,7 @@ export class UsersService {
     private readonly userRepository: Repository<User>,
 
     private readonly dataSource: DataSource,
+    private readonly mail: MailService,
   ) {}
 
   async createByAdmin(dto: AdminCreateUserDto) {
@@ -40,6 +42,8 @@ export class UsersService {
           isActive: true,
         }),
       );
+
+      this.mail.sendWelcome(user.id);
 
       return toSafeUser(user);
     } catch (error) {

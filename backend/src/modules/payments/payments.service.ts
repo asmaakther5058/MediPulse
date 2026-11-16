@@ -27,6 +27,7 @@ import type { AuthUser } from '../../common/interfaces/auth-user.interface.js';
 import { paginate } from '../../common/dto/pagination-query.dto.js';
 import { formatPayment } from '../../common/utils/payment.util.js';
 import { recordConsultationEarnings } from '../../common/utils/earnings.util.js';
+import { MailService } from '../mail/mail.service.js';
 
 const RELATIONS = {
   appointment: { patient: { user: true }, doctor: { user: true } },
@@ -40,6 +41,7 @@ export class PaymentsService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly notifications: NotificationsService,
+    private readonly mail: MailService,
   ) {}
 
   // Lock the bare row first (FOR UPDATE can't be used with outer joins)
@@ -179,6 +181,10 @@ export class PaymentsService {
 
     if ('expired' in result) {
       throw new BadRequestException('Payment failed because the appointment hold expired');
+    }
+
+    if (!result.alreadyConfirmed) {
+      this.mail.sendPaymentReceipt(paymentId);
     }
 
     return {
