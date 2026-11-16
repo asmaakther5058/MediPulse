@@ -176,8 +176,10 @@ export class AuthService {
     }
 
     user.passwordHash = await hashPassword(dto.newPassword);
+    user.passwordChangedAt = new Date();
     await this.userRepository.save(user);
+    this.mail.sendPasswordChanged(user.id);
 
-    return { message: 'Password changed successfully' };
+    return { message: 'Password changed successfully. Please log in again.' };
   }
 }
