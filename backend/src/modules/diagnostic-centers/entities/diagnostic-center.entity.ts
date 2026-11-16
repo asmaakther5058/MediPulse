@@ -8,6 +8,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   Check,
+  Index,
 } from 'typeorm';
 import type { Relation } from 'typeorm';
 import { sqlIn } from '../../../common/utils/sql.util.js';
@@ -16,6 +17,9 @@ import { User } from '../../users/entities/user.entity.js';
 import { VerificationStatus } from '../../../common/enums/verification-status.enum.js';
 
 @Entity('diagnostic_center_profiles')
+// At most one center that is PENDING or APPROVED (partial unique index on a
+// constant). Defined in migration 20261117000100; TypeORM leaves it alone.
+@Index('uq_diagnostic_centers_one_active', { synchronize: false })
 @Check('chk_diagnostic_center_verification', `"verification_status" IN (${sqlIn(VerificationStatus)})`)
 export class DiagnosticCenter {
   @PrimaryGeneratedColumn('uuid')

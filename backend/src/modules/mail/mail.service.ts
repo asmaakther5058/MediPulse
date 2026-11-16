@@ -42,6 +42,7 @@ export class MailService {
         roleLabel: ROLE_LABELS[user.role],
         isPatient: user.role === UserRole.PATIENT,
         isDoctor: user.role === UserRole.DOCTOR,
+        isCenter: user.role === UserRole.DIAGNOSTIC_CENTER,
       });
     });
   }

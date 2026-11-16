@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Not, Repository } from 'typeorm';
 
 import { DiagnosticCenter } from './entities/diagnostic-center.entity.js';
 import { User } from '../users/entities/user.entity.js';
@@ -23,6 +23,18 @@ import { PaginationQueryDto, paginate } from '../../common/dto/pagination-query.
 
 import { CreateDiagnosticCenterDto } from './dto/create-diagnostic-center.dto.js';
 import { UpdateDiagnosticCenterDto } from './dto/update-diagnostic-center.dto.js';
+import { RegisterDiagnosticCenterDto } from './dto/register-diagnostic-center.dto.js';
+import { hashPassword } from '../../common/utils/password.util.js';
+import { toSafeUser } from '../../common/utils/safe-user.util.js';
+import { NotificationsService } from '../notifications/notifications.service.js';
+import { NotificationType } from '../../common/enums/notification-type.enum.js';
+import { MailService } from '../mail/mail.service.js';
+
+// Version 1 has one diagnostic center (spec section 2). A REJECTED application
+// does not count, so a new center can apply after a rejection. The database
+// index uq_diagnostic_centers_one_active enforces the same rule.
+const ONE_CENTER_MESSAGE =
+  'A diagnostic center is already registered or waiting for approval; this version supports one center';
 
 @Injectable()
 export class DiagnosticCentersService {
@@ -34,7 +46,95 @@ export class DiagnosticCentersService {
     private readonly userRepository: Repository<User>,
 
     private readonly dataSource: DataSource,
+
+    private readonly notifications: NotificationsService,
+
+    private readonly mail: MailService,
   ) {}
+
+  // Throws if another center is PENDING or APPROVED
+  private async assertNoOtherActiveCenter(manager: EntityManager, exceptId?: string) {
+    const other = await manager.getRepository(DiagnosticCenter).exists({
+      where: {
+        verificationStatus: Not(VerificationStatus.REJECTED),
+        ...(exceptId ? { id: Not(exceptId) } : {}),
+      },
+    });
+    if (other) {
+      throw new ConflictException(ONE_CENTER_MESSAGE);
+    }
+  }
+
+  private isOneCenterViolation(error: unknown) {
+    return (
+      isUniqueViolation(error) &&
+      String((error as { driverError?: { constraint?: string } }).driverError?.constraint) ===
+        'uq_diagnostic_centers_one_active'
+    );
+  }
+
+  // Public sign-up: creates the DIAGNOSTIC_CENTER account and a PENDING
+  // center profile together. Nothing works until an admin approves it.
+  async register(dto: RegisterDiagnosticCenterDto) {
+    const { email, phone, password, ...centerData } = dto;
+    const passwordHash = await hashPassword(password);
+
+    try {
+      const { user, center } = await this.dataSource.transaction(async (manager) => {
+        await this.assertNoOtherActiveCenter(manager);
+
+        const user = await manager.getRepository(User).save(
+          manager.getRepository(User).create({
+            fullName: centerData.centerName,
+            email: email.toLowerCase(),
+            phone: phone ?? null,
+            passwordHash,
+            role: UserRole.DIAGNOSTIC_CENTER,
+            isActive: true,
+          }),
+        );
+
+        const center = await manager.getRepository(DiagnosticCenter).save(
+          manager.getRepository(DiagnosticCenter).create({
+            ...centerData,
+            user,
+            verificationStatus: VerificationStatus.PENDING,
+          }),
+        );
+
+        await this.notifications.notifyRole(
+          UserRole.ADMIN,
+          {
+            type: NotificationType.ACCOUNT_VERIFIED,
+            title: 'Diagnostic center waiting for approval',
+            message: `${center.centerName} (licence ${center.licenseNumber}) registered and needs verification.`,
+            relatedEntityType: 'diagnostic_center',
+            relatedEntityId: center.id,
+          },
+          manager,
+        );
+
+        return { user, center };
+      });
+
+      this.mail.sendWelcome(user.id);
+
+      center.user = user;
+      return {
+        message: 'Diagnostic center registered. An admin must approve it before it can be used.',
+        user: toSafeUser(user),
+        center: this.formatCenter(center),
+      };
+    } catch (error) {
+      if (this.isOneCenterViolation(error)) {
+        throw new ConflictException(ONE_CENTER_MESSAGE);
+      }
+      if (isUniqueViolation(error)) {
+        throw new ConflictException('Email, phone or licence number is already registered');
+      }
+      throw error;
+    }
+  }
 
   private formatCenter(center: DiagnosticCenter) {
     return {
@@ -104,12 +204,11 @@ export class DiagnosticCentersService {
       );
     }
 
-    // Version 1 has exactly one diagnostic center (spec section 2)
-    if ((await this.centerRepository.count()) > 0) {
-      throw new ConflictException(
-        'A diagnostic center already exists; this version supports one center',
-      );
+    if (await this.centerRepository.exists({ where: { user: { id: user.id } } })) {
+      throw new ConflictException('This user already has a diagnostic center profile');
     }
+
+    await this.assertNoOtherActiveCenter(this.dataSource.manager);
 
     const center = this.centerRepository.create({
       ...createDto,
@@ -123,6 +222,9 @@ export class DiagnosticCentersService {
       savedCenter.user = user;
       return this.formatCenter(savedCenter);
     } catch (error) {
+      if (this.isOneCenterViolation(error)) {
+        throw new ConflictException(ONE_CENTER_MESSAGE);
+      }
       if (isUniqueViolation(error)) {
         throw new ConflictException(
           'License number is already registered',
@@ -247,9 +349,39 @@ export class DiagnosticCentersService {
   async updateVerification(id: string, verificationStatus: VerificationStatus) {
     const center = await this.getCenterOrFail(id);
 
+    // Approving (or reopening) a center while another one is active would
+    // give the platform two centers
+    if (verificationStatus !== VerificationStatus.REJECTED) {
+      await this.assertNoOtherActiveCenter(this.dataSource.manager, center.id);
+    }
+
     center.verificationStatus = verificationStatus;
 
-    return this.formatCenter(await this.centerRepository.save(center));
+    let saved: DiagnosticCenter;
+    try {
+      saved = await this.centerRepository.save(center);
+    } catch (error) {
+      if (this.isOneCenterViolation(error)) {
+        throw new ConflictException(ONE_CENTER_MESSAGE);
+      }
+      throw error;
+    }
+
+    if (verificationStatus !== VerificationStatus.PENDING && center.user) {
+      await this.notifications.notify({
+        userId: center.user.id,
+        type: NotificationType.ACCOUNT_VERIFIED,
+        title: `Diagnostic center ${verificationStatus.toLowerCase()}`,
+        message:
+          verificationStatus === VerificationStatus.APPROVED
+            ? 'Your diagnostic center is approved. You can now add tests and receive bookings.'
+            : 'Your diagnostic center was not approved. Contact the admin for details.',
+        relatedEntityType: 'diagnostic_center',
+        relatedEntityId: center.id,
+      });
+    }
+
+    return this.formatCenter(saved);
   }
 
   // Patient-facing: approved, active centers (no owner contact details)
