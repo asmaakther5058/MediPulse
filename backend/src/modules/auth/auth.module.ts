@@ -16,6 +16,7 @@ import { AuthController } from './auth.controller.js';
 import { JwtStrategy } from './strategies/jwt.strategy.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../../common/guards/roles.guard.js';
+import { ApprovedCenterGuard } from '../../common/guards/approved-center.guard.js';
 
 @Module({
   imports: [
@@ -50,6 +51,9 @@ import { RolesGuard } from '../../common/guards/roles.guard.js';
 
     // @Roles(...) is enforced on every route that declares it
     { provide: APP_GUARD, useClass: RolesGuard },
+
+    // A diagnostic center can do almost nothing until an admin approves it
+    { provide: APP_GUARD, useClass: ApprovedCenterGuard },
   ],
 
   exports: [JwtModule, PassportModule],

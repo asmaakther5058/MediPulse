@@ -13,6 +13,7 @@ import {
 import { DiagnosticCentersService } from './diagnostic-centers.service.js';
 import { UpdateDiagnosticCenterDto } from './dto/update-diagnostic-center.dto.js';
 import { AdminCreateDiagnosticCenterDto } from './dto/admin-create-diagnostic-center.dto.js';
+import { RegisterDiagnosticCenterDto } from './dto/register-diagnostic-center.dto.js';
 
 
 import { PaginationQueryDto } from '../../common/dto/pagination-query.dto.js';
@@ -31,6 +32,13 @@ export class DiagnosticCentersController {
   constructor(
     private readonly diagnosticCentersService: DiagnosticCentersService,
   ) {}
+
+  // Public: a center signs itself up (PENDING until an admin approves it)
+  @Public()
+  @Post('register')
+  register(@Body() dto: RegisterDiagnosticCenterDto) {
+    return this.diagnosticCentersService.register(dto);
+  }
 
   // Admin creates a diagnostic center profile
   @Post()

@@ -25,6 +25,7 @@ import { CreateDiagnosticReportsTable20261116001700 } from './migrations/2026111
 import { AddAuditLogsIndexes20261116001800 } from './migrations/20261116001800-AddAuditLogsIndexes.js';
 import { AddPasswordChangedAtToUsersTable20261116001900 } from './migrations/20261116001900-AddPasswordChangedAtToUsersTable.js';
 import { CreatePasswordResetTokensTable20261116002000 } from './migrations/20261116002000-CreatePasswordResetTokensTable.js';
+import { AddOneActiveCenterIndex20261117000100 } from './migrations/20261117000100-AddOneActiveCenterIndex.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -64,6 +65,7 @@ const dataSource = new DataSource({
     AddAuditLogsIndexes20261116001800,
     AddPasswordChangedAtToUsersTable20261116001900,
     CreatePasswordResetTokensTable20261116002000,
+    AddOneActiveCenterIndex20261117000100,
   ],
   migrationsTableName: 'migrations',
 
