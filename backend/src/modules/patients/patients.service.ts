@@ -330,6 +330,16 @@ export class PatientsService {
         patientNote: a.patientNote,
         createdAt: a.createdAt,
       })),
+      // Diagnoses are written in each prescription (spec decision);
+      // listed here on their own as a quick timeline
+      diagnoses: prescriptions.map((p) => ({
+        prescriptionId: p.id,
+        appointmentId: p.appointment?.id,
+        appointmentDate: p.appointment?.appointmentDate,
+        doctorName: p.doctor.user?.fullName,
+        diagnosis: p.diagnosis,
+        createdAt: p.createdAt,
+      })),
       prescriptions: prescriptions.map((p) => ({
         id: p.id,
         appointmentId: p.appointment?.id,
