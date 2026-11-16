@@ -21,6 +21,7 @@ import { JwtPayload } from '../../common/interfaces/jwt-payload.interface.js';
 import { hashPassword, verifyPassword } from '../../common/utils/password.util.js';
 import { generatePatientCode } from '../../common/utils/codes.util.js';
 import { isUniqueViolation, toSafeUser } from '../../common/utils/safe-user.util.js';
+import { MailService } from '../mail/mail.service.js';
 
 @Injectable()
 export class AuthService {
@@ -33,6 +34,7 @@ export class AuthService {
 
     @InjectRepository(Patient)
     private readonly patientRepository: Repository<Patient>,
+    private readonly mail: MailService,
   ) {}
 
   // Patient self-registration: user + patient profile in one transaction
@@ -65,6 +67,8 @@ export class AuthService {
 
         return { user, patient };
       });
+
+      this.mail.sendWelcome(result.user.id);
 
       return {
         message: 'Patient registration successful',
@@ -172,8 +176,10 @@ export class AuthService {
     }
 
     user.passwordHash = await hashPassword(dto.newPassword);
+    user.passwordChangedAt = new Date();
     await this.userRepository.save(user);
+    this.mail.sendPasswordChanged(user.id);
 
-    return { message: 'Password changed successfully' };
+    return { message: 'Password changed successfully. Please log in again.' };
   }
 }

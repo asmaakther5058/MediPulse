@@ -35,6 +35,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('User is inactive or does not exist');
     }
 
+    // Password changed or reset after this token was issued: log in again
+    if (
+      user.passwordChangedAt &&
+      payload.iat !== undefined &&
+      payload.iat < Math.floor(user.passwordChangedAt.getTime() / 1000)
+    ) {
+      throw new UnauthorizedException('Password was changed. Please log in again.');
+    }
+
     return {
       id: user.id,
       email: user.email,

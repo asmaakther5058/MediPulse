@@ -7,8 +7,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 
 import { User } from '../users/entities/user.entity.js';
 import { Patient } from '../patients/entities/patient.entity.js';
+import { PasswordResetToken } from './entities/password-reset-token.entity.js';
+import { AuditLogsModule } from '../audit-logs/audit-logs.module.js';
 
 import { AuthService } from './auth.service.js';
+import { PasswordResetService } from './password-reset.service.js';
 import { AuthController } from './auth.controller.js';
 import { JwtStrategy } from './strategies/jwt.strategy.js';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard.js';
@@ -16,7 +19,9 @@ import { RolesGuard } from '../../common/guards/roles.guard.js';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Patient]),
+    TypeOrmModule.forFeature([User, Patient, PasswordResetToken]),
+
+    AuditLogsModule,
 
     PassportModule.register({ defaultStrategy: 'jwt' }),
 
@@ -37,6 +42,7 @@ import { RolesGuard } from '../../common/guards/roles.guard.js';
 
   providers: [
     AuthService,
+    PasswordResetService,
     JwtStrategy,
 
     // Every route requires a valid JWT unless marked @Public()
