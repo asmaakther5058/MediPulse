@@ -33,6 +33,7 @@ import {
   resolveStored,
   saveFile,
 } from '../../common/utils/storage.util.js';
+import { MailService } from '../mail/mail.service.js';
 
 export interface UploadedReportFile {
   buffer: Buffer;
@@ -54,6 +55,7 @@ export class DiagnosticReportsService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly notifications: NotificationsService,
+    private readonly mail: MailService,
   ) {}
 
   private format(r: DiagnosticReport) {
@@ -186,6 +188,8 @@ export class DiagnosticReportsService {
 
         return report.id;
       });
+
+      this.mail.sendReportReady(reportId);
 
       return this.format(await this.load(this.dataSource.manager, reportId));
     } catch (error) {

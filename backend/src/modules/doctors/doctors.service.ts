@@ -34,6 +34,7 @@ import {
   CATEGORY_STATUSES,
 } from '../../common/enums/appointment-status.enum.js';
 import { expireStaleHolds, formatAppointment, APPOINTMENT_RELATIONS } from '../../common/utils/appointment.util.js';
+import { MailService } from '../mail/mail.service.js';
 
 @Injectable()
 export class DoctorsService {
@@ -50,6 +51,7 @@ export class DoctorsService {
     private readonly dataSource: DataSource,
 
     private readonly notifications: NotificationsService,
+    private readonly mail: MailService,
   ) {}
 
   // Safe response shape (no password hash)
@@ -135,6 +137,8 @@ export class DoctorsService {
 
         return { user, doctor };
       });
+
+      this.mail.sendWelcome(user.id);
 
       return {
         message: 'Doctor registered successfully. Waiting for verification.',
