@@ -178,9 +178,17 @@ export class PrescriptionsService {
       throw new NotFoundException('Prescription not found');
     }
 
-    const data = prescription.pdfPath
-      ? await readStored(prescription.pdfPath)
-      : await renderPrescriptionPdf(prescription);
+    // Everything on a prescription is in the database, so if the stored
+    // file is gone (uploads folder cleaned, UPLOAD_DIR changed) rebuild it
+    let data: Buffer;
+    try {
+      if (!prescription.pdfPath) throw new NotFoundException('File not found');
+      data = await readStored(prescription.pdfPath);
+    } catch (error) {
+      if (!(error instanceof NotFoundException)) throw error;
+      const rebuilt = await this.writePdf(this.dataSource.manager, id);
+      data = await readStored(rebuilt.pdfPath!);
+    }
 
     return { data, fileName: `prescription-${prescription.patient.patientCode}-${prescription.id.slice(0, 8)}.pdf` };
   }
