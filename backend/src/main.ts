@@ -3,6 +3,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { ClassSerializerInterceptor, ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module.js';
 import { DatabaseExceptionFilter } from './common/filters/database-exception.filter.js';
+import { autoAuthorizeOnLogin, LOGIN_BAR_JS } from './swagger-login.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -26,16 +27,26 @@ async function bootstrap() {
   // Applies @Exclude() (e.g. User.passwordHash) to every response
   app.useGlobalInterceptors(new ClassSerializerInterceptor(app.get(Reflector)));
 
-  // Interactive API docs at /api/docs (click Authorize and paste the accessToken)
+  // Interactive API docs at /api/docs. Logging in with POST /auth/login sets
+  // the token automatically, and a bar at the top shows who is logged in.
   const swaggerConfig = new DocumentBuilder()
     .setTitle('MediPulse API')
     .setDescription('Patient, Doctor, Diagnostic Center and Admin endpoints')
     .setVersion('1.0')
     .addBearerAuth()
     .build();
-  SwaggerModule.setup('api/docs', app, SwaggerModule.createDocument(app, swaggerConfig), {
-    swaggerOptions: { persistAuthorization: true },
-  });
+  SwaggerModule.setup(
+    'api/docs',
+    app,
+    SwaggerModule.createDocument(app, swaggerConfig),
+    {
+      swaggerOptions: {
+        persistAuthorization: true,
+        responseInterceptor: autoAuthorizeOnLogin,
+      },
+      customJsStr: LOGIN_BAR_JS,
+    },
+  );
 
   await app.listen(process.env.PORT ?? 3000);
 }
