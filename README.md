@@ -7,7 +7,7 @@
 Book a doctor, pay to confirm, get a digital prescription, and take the tests your doctor recommends, with the report waiting in your account.
 Course project specification: *MediConnect BD*.
 
-**Status:** Course release (backend v2) · **Last updated:** 18 Nov 2026 · **Origin:** CSC4161 Advanced Programming in Web Technology
+**Status:** Course release (backend v2) · **Origin:** CSC4161 Advanced Programming in Web Technology
 
 </div>
 
