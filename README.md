@@ -50,10 +50,10 @@ This README describes the MediPulse backend as it is in this repository: a NestJ
 
 | SL | Student ID | Name | Section | Contribution | Main tables |
 |---|---|---|---|---|---|
-| 1 | 23-53029-3 | Asma Akther | F | **Doctor module:** doctor profiles, specializations, doctor availability, appointment and consultation workflows | doctor_profiles, specializations, doctor_availabilities, appointments (doctor side), prescriptions, prescription_medicines, test_recommendations |
-| 2 | 23-53666-3 | Sandipon Mondal | F | **Diagnostic Center module:** diagnostic center profiles, diagnostic tests, diagnostic bookings and diagnostic reports | diagnostic_center_profiles, diagnostic_tests, diagnostic_bookings, diagnostic_reports |
-| 3 | 23-52626-2 | SK. Farhan Alvi | F | **Patient module and shared application work:** patient profile, appointment and medical record workflows | patient_profiles, appointments (patient side), patient access to prescriptions, recommendations, bookings and reports |
-| 4 | 23-51643-2 | Chinmay Banik | F | **Admin module:** user administration, doctor verification, platform monitoring, payments and earnings oversight | users, payments, earnings, audit_logs, admin access across all modules |
+| 1 | 23-53029-3 | Asma Akther | F | **Doctor module:** doctor profiles, specializations, doctor availability, appointment and consultation workflows, doctor verification | doctor_profiles, specializations, doctor_availabilities, appointments (doctor side), prescriptions, prescription_medicines, test_recommendations, Database migration(Advanced), Custom Decorator, Swagger UI, Response manipulation |
+| 2 | 23-52626-2 | SK. Farhan Alvi | F | **Patient module and shared application work:** patient profile, appointment and medical record workflows | patient_profiles, appointments (patient side), patient access to prescriptions, recommendations, audit_logs, Mailer implementation, bookings and reports |
+| 3 | 23-53666-3 | Sandipon Mondal | F | **Diagnostic Center module:** diagnostic center profiles, diagnostic tests, diagnostic bookings and diagnostic reports | diagnostic_center_profiles, diagnostic_tests, diagnostic_bookings, diagnostic_reports |
+| 4 | 23-51643-2 | Chinmay Banik | F | **Admin module:** user administration, platform monitoring, payments and earnings oversight | users, payments, earnings, admin access across all modules |
 
 **Shared by everyone** (merged into `main` first): auth (register, login, forgot and reset password, profile photo), notifications, mailer, password_reset_tokens, every entity and migration, and the common layer (guards, decorators, filters, validators). diagnostic_bookings and diagnostic_reports are shared by the Patient and Diagnostic Center workflows. Each member writes the DTOs, Swagger docs, tests and screenshots for their own endpoints.
 
