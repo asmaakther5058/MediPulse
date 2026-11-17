@@ -7,7 +7,7 @@
 Book a doctor, pay to confirm, get a digital prescription, and take the tests your doctor recommends, with the report waiting in your account.
 Course project specification: *MediConnect BD*.
 
-**Status:** Course release (backend v2) · **Last updated:** 17 Nov 2026 · **Origin:** CSC4161 Advanced Programming in Web Technology
+**Status:** Course release (backend v2) · **Last updated:** 18 Nov 2026 · **Origin:** CSC4161 Advanced Programming in Web Technology
 
 </div>
 
@@ -15,7 +15,7 @@ Course project specification: *MediConnect BD*.
 
 This README describes the MediPulse backend as it is in this repository: a NestJS API with PostgreSQL, used through Swagger UI and Postman. There is no frontend in this repo yet. Section numbers are stable, so references such as §8 or FR-AP-3 can be used in the report.
 
-**Run it:** [14. Getting Started](#14-getting-started) · **Where code goes:** [8. Repository Structure](#8-repository-structure) · **All endpoints:** [17. API Endpoints](#17-api-endpoints) · **What the course asks for:** [18. CSC4161 Course Release](#18-csc4161-course-release) · **Repository:** [asmaakther5058/MediPulse](https://github.com/asmaakther5058/MediPulse)
+**Run it:** [14. Getting Started](#14-getting-started) · **Where code goes:** [8. Repository Structure](#8-repository-structure) · **All endpoints:** [17. API Endpoints](#17-api-endpoints) · **What the course asks for:** [18. CSC4161 Course Release](#18-csc4161-course-release) · **Repository:** [asmaakther5058/MediPulse](https://github.com/asmaakther5058/MediPulse) · **Project board:** [Trello](TRELLO_LINK_HERE)
 
 ## Table of Contents
 
@@ -38,19 +38,26 @@ This README describes the MediPulse backend as it is in this repository: a NestJ
 17. [API Endpoints](#17-api-endpoints)
 18. [CSC4161 Course Release](#18-csc4161-course-release)
 19. [Future Work](#19-future-work)
+20. [References](#20-references)
 
 ---
 
 ## 1. Team
 
-**Group:** *TBD*
+**Group:** *TBD* · **Course:** CSC4161 Advanced Programming in Web Technology · **Semester:** Fall 2026
 
-| SL | Student ID | Name | Section | Side and module ownership |
-|---|---|---|---|---|
-| 1 | *TBD* | Asma Akther | *TBD* | **Doctor side** (`Asma-Akther--Doctor-Branch`): doctors and verification, doctor schedule, accept, reject and complete appointments, prescriptions and PDFs, test recommendations, diagnostic tests, the diagnostic center and its sign-up, diagnostic reports, doctor and admin revenue |
-| 2 | *TBD* | Farhan Alvi | *TBD* | **Patient side** (`Farhan-Alvi-Patient-Branch`): patient profile and dashboard, medical history, free slots and booking, appointment tabs and cancel, payments for appointments and tests, diagnostic bookings |
+**Repository:** [github.com/asmaakther5058/MediPulse](https://github.com/asmaakther5058/MediPulse) · **Project board:** [Trello](TRELLO_LINK_HERE) · **Report:** `Final_MediPulse_Project_Report.docx`
 
-**Shared by both sides** (merged into `main` first): auth (register, login, forgot and reset password, profile photo), users, specializations, notifications, audit log, admin dashboard, mailer, every entity and migration, and the common layer (guards, decorators, filters, validators). Each member writes the DTOs, Swagger docs, tests and screenshots for their own endpoints.
+| SL | Student ID | Name | Section | Contribution | Main tables |
+|---|---|---|---|---|---|
+| 1 | 23-53029-3 | Asma Akther | F | **Doctor module:** doctor profiles, specializations, doctor availability, appointment and consultation workflows | doctor_profiles, specializations, doctor_availabilities, appointments (doctor side), prescriptions, prescription_medicines, test_recommendations |
+| 2 | 23-53666-3 | Sandipon Mondal | F | **Diagnostic Center module:** diagnostic center profiles, diagnostic tests, diagnostic bookings and diagnostic reports | diagnostic_center_profiles, diagnostic_tests, diagnostic_bookings, diagnostic_reports |
+| 3 | 23-52626-2 | SK. Farhan Alvi | F | **Patient module and shared application work:** patient profile, appointment and medical record workflows | patient_profiles, appointments (patient side), patient access to prescriptions, recommendations, bookings and reports |
+| 4 | 23-51643-2 | Chinmay Banik | F | **Admin module:** user administration, doctor verification, platform monitoring, payments and earnings oversight | users, payments, earnings, audit_logs, admin access across all modules |
+
+**Shared by everyone** (merged into `main` first): auth (register, login, forgot and reset password, profile photo), notifications, mailer, password_reset_tokens, every entity and migration, and the common layer (guards, decorators, filters, validators). diagnostic_bookings and diagnostic_reports are shared by the Patient and Diagnostic Center workflows. Each member writes the DTOs, Swagger docs, tests and screenshots for their own endpoints.
+
+The same table, with each member's AI-usage percentage, is on the cover of the project report.
 
 ## 2. Overview
 
@@ -87,7 +94,7 @@ Seeing a doctor usually means queuing at a chamber without knowing whether a slo
 
 | ID | Decision | Key reason |
 |---|---|---|
-| DD-01 | One NestJS app with a shared core, a doctor side and a patient side | Two people can work in parallel; the sides never edit the same file, so pull requests merge cleanly |
+| DD-01 | One NestJS app with a shared core, a doctor side and a patient side | Team members can work in parallel; the sides never edit the same file, so pull requests merge cleanly |
 | DD-02 | UUID primary keys everywhere | Ids cannot be guessed or counted |
 | DD-03 | Hand-written migrations, one file per table; `synchronize` off | The schema is reviewable and repeatable; a migration that has run is never edited |
 | DD-04 | A booking holds the slot for 30 minutes until it is paid; expired holds are cancelled before any read or write that depends on them | No background job is needed and unpaid bookings never block a slot for long |
@@ -300,10 +307,13 @@ MediPulse/
 
 | Folder in `backend/src/` | Built by |
 |---|---|
-| `common/`, `config/`, `database/`, every `entities/` folder | Shared (merged to `main` first) |
-| `modules/auth`, `users`, `specializations`, `notifications`, `audit-logs`, `admin`, `mail`, `earnings` | Shared |
-| `doctor-features.module.ts`, `modules/doctors`, `doctor-availability`, `doctor-appointments`, `prescriptions`, `test-recommendations`, `diagnostic-tests`, `diagnostic-centers`, `diagnostic-reports`, `payment-reports` | Asma Akther (doctor side) |
-| `patient-features.module.ts`, `modules/patients`, `appointments`, `payments`, `diagnostic-bookings` | Farhan Alvi (patient side) |
+| `common/`, `config/`, `database/`, every `entities/` folder, `modules/auth`, `notifications`, `mail` | Shared (merged to `main` first) |
+| `modules/doctors`, `specializations`, `doctor-availability`, `doctor-appointments`, `prescriptions`, `test-recommendations` | Asma Akther (Doctor module) |
+| `modules/diagnostic-centers`, `diagnostic-tests`, `diagnostic-bookings`, `diagnostic-reports` | Sandipon Mondal (Diagnostic Center module) |
+| `modules/patients`, `appointments`, `payments` (patient payments) | SK. Farhan Alvi (Patient module) |
+| `modules/users`, `admin`, `audit-logs`, `earnings`, `payment-reports` | Chinmay Banik (Admin module) |
+
+The code is still wired as a doctor side (`doctor-features.module.ts`) and a patient side (`patient-features.module.ts`), as described in §7; the table above shows which member owns each module within them.
 
 Uploaded files go to `backend/uploads/` (or `UPLOAD_DIR`), which Git ignores, as it does `.env`.
 
@@ -515,7 +525,7 @@ Run inside `backend/`:
 
 ## 15. Development Workflow
 
-- **Branches.** Each side works on its own branch (`Asma-Akther--Doctor-Branch`, `Farhan-Alvi-Patient-Branch`) or a short feature branch, always started from an up-to-date `main`. Changes reach `main` only through a pull request.
+- **Branches.** Each member works on their own branch (for example `Asma-Akther--Doctor-Branch`, `Farhan-Alvi-Patient-Branch`) or a short feature branch, always started from an up-to-date `main`. Changes reach `main` only through a pull request.
 - **Order.** Shared changes (entities, migrations, common code) merge first; then each side pulls `main` before continuing.
 - **Migrations.** Never edit a migration that has run anywhere; add a new file named `YYYYMMDDHHMMSS-Description.ts` and list it in `src/database/data-source.ts`. `synchronize` stays off.
 - **Secrets.** Never commit `.env` or `uploads/`. Share SMTP keys and passwords privately.
@@ -752,6 +762,64 @@ The course deliverable is this backend, demonstrated through Swagger UI and Post
 - Appointment reminders by email the day before, and a scheduled job that clears expired holds.
 - Report files and photos in cloud storage instead of the server's disk.
 - Online deployment with HTTPS.
+
+## 20. References
+
+### Project
+
+- MediPulse source code and this README: [github.com/asmaakther5058/MediPulse](https://github.com/asmaakther5058/MediPulse)
+- Project board (tasks and progress): [Trello](TRELLO_LINK_HERE)
+
+### Similar medical apps and sites
+
+These systems were studied while designing MediPulse. Most cover one part of the journey (consultation, lab booking or report download); MediPulse links appointment, prescription, test recommendation, test payment and report in one workflow.
+
+| System | Country | What it does | Link |
+|---|---|---|---|
+| DocTime | Bangladesh | Video consultation with doctors, e-prescriptions, medicine delivery and lab tests with home sample collection | [doctime.com.bd](https://doctime.com.bd) |
+| Praava Health | Bangladesh | Family doctors and diagnostics; a patient app for booking appointments, lab and imaging tests, and reading prescriptions and reports | [praavahealth.com](https://praavahealth.com) |
+| Labaid Diagnostics | Bangladesh | Diagnostic center whose patients sign in on the website to download their reports | [labaiddiagnostics.com](https://labaiddiagnostics.com) |
+| Popular Diagnostic Centre | Bangladesh | Large diagnostic chain with doctor chambers, a patient portal and online reports | [populardiagnostic.com](https://www.populardiagnostic.com) |
+| SasthyaSeba | Bangladesh | Directory of hospitals and diagnostic centers with their doctors, schedules and tests | [sasthyaseba.com](https://sasthyaseba.com) |
+| Practo | India | Find and book doctors, video consultation, medicine orders and lab tests with reports in the app | [practo.com](https://www.practo.com) |
+| Zocdoc | USA | Search doctors, see real-time open slots and book instantly online | [zocdoc.com](https://www.zocdoc.com) |
+
+### Framework and library documentation
+
+| Topic | Link |
+|---|---|
+| NestJS | [docs.nestjs.com](https://docs.nestjs.com) |
+| NestJS: Swagger (OpenAPI) | [docs.nestjs.com/openapi/introduction](https://docs.nestjs.com/openapi/introduction) |
+| NestJS: file upload | [docs.nestjs.com/techniques/file-upload](https://docs.nestjs.com/techniques/file-upload) |
+| NestJS: configuration | [docs.nestjs.com/techniques/configuration](https://docs.nestjs.com/techniques/configuration) |
+| NestJS: authentication and guards | [docs.nestjs.com/security/authentication](https://docs.nestjs.com/security/authentication) |
+| TypeORM | [typeorm.io](https://typeorm.io) |
+| PostgreSQL | [postgresql.org/docs](https://www.postgresql.org/docs/) |
+| PostgreSQL: partial indexes | [postgresql.org/docs/current/indexes-partial.html](https://www.postgresql.org/docs/current/indexes-partial.html) |
+| PostgreSQL: row locks (`SELECT … FOR UPDATE`) | [postgresql.org/docs/current/explicit-locking.html](https://www.postgresql.org/docs/current/explicit-locking.html) |
+| class-validator | [github.com/typestack/class-validator](https://github.com/typestack/class-validator) |
+| class-transformer | [github.com/typestack/class-transformer](https://github.com/typestack/class-transformer) |
+| passport-jwt | [github.com/mikenicholson/passport-jwt](https://github.com/mikenicholson/passport-jwt) |
+| bcrypt | [npmjs.com/package/bcrypt](https://www.npmjs.com/package/bcrypt) |
+| @nestjs-modules/mailer | [nest-modules.github.io/mailer](https://nest-modules.github.io/mailer/) |
+| Nodemailer | [nodemailer.com](https://nodemailer.com) |
+| Handlebars | [handlebarsjs.com](https://handlebarsjs.com) |
+| PDFKit | [pdfkit.org](https://pdfkit.org) |
+| Multer | [github.com/expressjs/multer](https://github.com/expressjs/multer) |
+| Brevo SMTP relay | [developers.brevo.com/docs/smtp-integration](https://developers.brevo.com/docs/smtp-integration) |
+| Mailtrap Email Testing | [mailtrap.io](https://mailtrap.io) |
+| Postman | [learning.postman.com](https://learning.postman.com) |
+| Newman (Postman CLI runner) | [github.com/postmanlabs/newman](https://github.com/postmanlabs/newman) |
+| Vitest | [vitest.dev](https://vitest.dev) |
+| Mermaid (diagrams in this README) | [mermaid.js.org](https://mermaid.js.org) |
+
+### Standards and guides
+
+- M. Jones, J. Bradley, N. Sakimura. *JSON Web Token (JWT)*, RFC 7519. [datatracker.ietf.org/doc/html/rfc7519](https://datatracker.ietf.org/doc/html/rfc7519)
+- R. Fielding, M. Nottingham, J. Reschke. *HTTP Semantics*, RFC 9110 (status codes). [datatracker.ietf.org/doc/html/rfc9110](https://datatracker.ietf.org/doc/html/rfc9110)
+- OWASP. *Password Storage Cheat Sheet*. [cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html)
+- OWASP. *File Upload Cheat Sheet*. [cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)
+- CSC4161 *Project Proposal Guide and Sample Project Report* (course handout, October 2026).
 
 ## License
 
