@@ -5,7 +5,7 @@
 **Doctor appointments, prescriptions and diagnostic tests in one place**
 
 Book a doctor, pay to confirm, get a digital prescription, and take the tests your doctor recommends, with the report waiting in your account.
-Course project specification: *MediConnect BD*.
+Course project specification: *MediPulse*.
 
 **Status:** Course release (backend v2) · **Origin:** CSC4161 Advanced Programming in Web Technology
 
