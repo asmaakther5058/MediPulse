@@ -1,3 +1,4 @@
+
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
 import { dirname, join } from 'node:path';
@@ -7,25 +8,34 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 export const databaseConfig = (
   configService: ConfigService,
-): TypeOrmModuleOptions => ({
-  type: 'postgres',
+): TypeOrmModuleOptions => {
+  const dbHost = configService.get<string>('DB_HOST');
 
-  host: configService.get<string>('DB_HOST'),
-  port: Number(configService.get<string>('DB_PORT') ?? 5432),
+  return {
+    type: 'postgres',
 
-  username: configService.get<string>('DB_USERNAME'),
-  password: configService.get<string>('DB_PASSWORD'),
-  database: configService.get<string>('DB_DATABASE'),
+    host: dbHost,
+    port: Number(configService.get<string>('DB_PORT') ?? 5432),
 
-  // gen_random_uuid() is built into PostgreSQL 13+
-  uuidExtension: 'pgcrypto',
+    username: configService.get<string>('DB_USERNAME'),
+    password: configService.get<string>('DB_PASSWORD'),
+    database: configService.get<string>('DB_DATABASE'),
 
-  // Load every entity file, so relations work even when only the
-  // doctor-side or only the patient-side modules are present.
-  entities: [join(here, '..', 'modules', '**', 'entities', '*.entity.{ts,js}')],
-  autoLoadEntities: true,
+    // Enable SSL only when connecting to Neon PostgreSQL
+    ssl: dbHost?.includes('.neon.tech')
+      ? { rejectUnauthorized: false }
+      : false,
 
-  synchronize: false,
+    // gen_random_uuid() is built into PostgreSQL 13+
+    uuidExtension: 'pgcrypto',
 
-  logging: configService.get<string>('DB_LOGGING') === 'true',
-});
+    // Load every entity file, so relations work even when only the
+    // doctor-side or only the patient-side modules are present.
+    entities: [join(here, '..', 'modules', '**', 'entities', '*.entity.{ts,js}')],
+    autoLoadEntities: true,
+
+    synchronize: false,
+
+    logging: configService.get<string>('DB_LOGGING') === 'true',
+  };
+};

@@ -38,6 +38,11 @@ const dataSource = new DataSource({
   password: process.env.DB_PASSWORD ?? '',
   database: process.env.DB_DATABASE ?? 'medipulse_db',
 
+  // Enable SSL only when connecting to Neon PostgreSQL
+ssl: process.env.DB_HOST?.includes('.neon.tech')
+  ? { rejectUnauthorized: false }
+  : false,
+
   // gen_random_uuid() is built into PostgreSQL 13+, no extension needed
   uuidExtension: 'pgcrypto',
 
